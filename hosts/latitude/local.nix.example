@@ -1,0 +1,13 @@
+# Copy to ignored local/latitude.nix; this example is intentionally incomplete.
+# Fill values only after physical inspection. Do not import this example as-is.
+{ ... }: {
+  # homelab.install.internalDisk = <verified internal /dev/disk/by-id whole disk>;
+  # homelab.install.uefiConfirmed = true;
+  # homelab.adminKeys = [ <verified public key> ];
+  # boot.initrd.availableKernelModules = [ <inspected drivers> ];
+  # systemd.network.networks."10-wired" = {
+  #   matchConfig.Name = <verified Ethernet interface>;
+  #   networkConfig.DHCP = "ipv4"; # only if verified on the LAN
+  # };
+  assertions = [ { assertion = false; message = "Complete private hardware inventory before deployment"; } ];
+}

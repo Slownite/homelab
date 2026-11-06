@@ -1,0 +1,4 @@
+# Copy to ignored .sops.yaml and replace the recipient before encrypting.
+creation_rules:
+  - path_regex: secrets/.*\.enc\.yaml$
+    age: REPLACE_WITH_VERIFIED_AGE_PUBLIC_RECIPIENT

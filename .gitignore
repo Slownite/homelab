@@ -1,0 +1,14 @@
+/local/
+/result
+/result-*
+/.direnv/
+/.sops.yaml
+*.agekey
+*.pem
+id_ed25519
+id_rsa
+.env
+.env.*
+/secrets/*
+!/secrets/README.md
+!/secrets/*.enc.yaml
