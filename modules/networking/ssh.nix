@@ -1,4 +1,4 @@
-{ ... }: {
+{ config, ... }: {
   services.openssh = {
     enable = true;
     openFirewall = false;
@@ -7,7 +7,7 @@
       KbdInteractiveAuthentication = false;
       PermitRootLogin = "no";
       X11Forwarding = false;
-      AllowUsers = [ "admin" ];
+      AllowUsers = [ config.homelab.adminUser ];
     };
   };
 }

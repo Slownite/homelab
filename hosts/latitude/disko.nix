@@ -37,7 +37,7 @@ in
         type = "gpt";
         partitions = {
           ESP = {
-            size = "512M";
+            size = "1G";
             type = "EF00";
             content = {
               type = "filesystem";
@@ -45,6 +45,10 @@ in
               mountpoint = "/boot";
               mountOptions = [ "umask=0077" ];
             };
+          };
+          swap = {
+            size = "16G";
+            content.type = "swap";
           };
           root = {
             size = "100%";

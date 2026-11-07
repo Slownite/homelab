@@ -24,6 +24,21 @@ let
         }
       ];
     }).config;
+  # Non-deployable RAID module fixture; no block device or array is created.
+  raid =
+    (validation.extendModules {
+      modules = [
+        {
+          homelab.externalRaid = {
+            enable = true;
+            arrayUUID = "evaluation-only";
+            filesystemUUID = "evaluation-only";
+            arrayName = "evaluation-only";
+            mountPoint = "/srv/raid-fixture";
+          };
+        }
+      ];
+    }).config;
   # Force module data without building a bootable system or bypassing its assertions.
   report = builtins.toJSON {
     ssh = c.services.openssh.settings;
@@ -42,6 +57,13 @@ let
     in
     if failed == [ ] then true else throw (builtins.concatStringsSep "\n" (map (a: a.message) failed));
   tests = [
+    (ensure (checkAssertions raid) "RAID module assertion failed")
+    (ensure (raid.boot.swraid.enable && raid.disko.devices.disk == { }) "RAID must not enter Disko")
+    (ensure (raid.fileSystems."/srv/raid-fixture".noCheck
+    ) "Existing RAID must not be automatically repaired")
+    (ensure (builtins.elem "nofail"
+      raid.fileSystems."/srv/raid-fixture".options
+    ) "Missing RAID must not prevent admin recovery")
     (ensure (builtins.elem "srv-fixture.mount" nfs.systemd.services.nfs-server.bindsTo) "NFS must stop with its data mount")
     (ensure (
       nfs.systemd.services.nfs-server.unitConfig.ConditionPathIsMountPoint == "/srv/fixture"

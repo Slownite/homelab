@@ -19,7 +19,7 @@ Rotate by introducing a new identity/recipient, `sops updatekeys` on each encryp
 
 ## Access and agents
 
-SSH is key-only for `admin`; its password is locked and sudo is passwordless, so an admin key grants root-equivalent access. Before installation prove that the key works and establish console recovery. Do not replace a working Debian authentication path during preparation. Firewall allows SSH; no NFS or application ports are opened. Keep the server off public port forwarding. Tailscale remains off until enrollment and ACL policy are reviewed. Verify private SSH before narrowing LAN access; Tailscale availability must not be the only recovery route.
+SSH is key-only for the configured `homelab.adminUser` (default `admin`, audited account in the private profile); its password is locked and sudo is passwordless, so an admin key grants root-equivalent access. Before installation prove that the key works and establish console recovery. Do not replace a working Debian authentication path during preparation. Firewall allows SSH; no NFS or application ports are opened. Keep the server off public port forwarding. Tailscale remains off until enrollment and ACL policy are reviewed. Verify private SSH before narrowing LAN access; Tailscale availability must not be the only recovery route.
 
 Hermes is blocked pending identification of the exact upstream project/version, supported package and execution entry point, runtime dependencies, command execution model, required egress and full state inventory. Back up memory, sessions, skills, configuration and credentials consistently. No package or migration procedure is invented. No host shell/root mount, private NAS bind or privileged socket is permitted by default.
 

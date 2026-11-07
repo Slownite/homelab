@@ -2,7 +2,7 @@
 
 Public infrastructure definitions for a headless Dell Latitude, developed on a separate Ubuntu workstation with Determinate Nix. **Phase 0 only: no server has been inspected, installed, or deployed.**
 
-The target is x86_64-linux, an approximately seven-year-old Intel i7 laptop with 32 GB RAM, an internal system drive, and two external 4 TB USB drives providing approximately 4 TB usable storage. Their topology is unknown. External storage must survive migration intact.
+The target is x86_64-linux, a Dell Latitude 5300 with Intel Core i7-8665U and 32 GiB RAM, an approximately 1 TB internal NVMe, and two external 4 TB USB drives providing approximately 4 TB usable storage. The audited USB topology is an existing healthy mdadm RAID1 with ext4. External storage must survive migration intact.
 
 ```mermaid
 flowchart LR
@@ -25,7 +25,7 @@ CI separately evaluates non-deployable module fixtures, including the opt-in con
 
 Implemented: stable locked flake, core system modules, SSH/firewall, conditional internal-disk UEFI/ext4 layout, sops integration, inactive storage/NFS/Restic/Tailscale scaffolds, offline example container, blocked agent integration points, local checks and CI.
 
-Planned: actual hardware settings, storage mounts/exports, enrolled Tailscale, tested backups, monitoring, Hermes migration and verified PR-Agent packaging. No backups or services have been deployed.
+Prepared privately after audit: hardware settings and existing RAID assembly/mount. Planned: post-install storage verification and NFS activation, enrolled Tailscale, tested backups, monitoring, Hermes migration and verified PR-Agent packaging. No backups or services have been deployed.
 
 ## Layout
 
@@ -65,3 +65,11 @@ Disko describes only one inspected internal drive. No USB device, mount or NFS e
 3. **AI agents:** Hermes migration, on-demand PR-Agent, persistent state and isolation.
 4. **Development infrastructure:** optional GitHub automation, runners, remote builder, binary cache and benchmarking.
 5. **Experiments:** optional microvm.nix, sandboxed coding agents, agent evaluations and performance regression tests.
+
+## Audited Latitude 5300 preparation
+
+The hardware audit has been supplied. A private `local/latitude.nix` now selects the exact internal NVMe, confirmed UEFI, wired DHCP, the intended administrator and SSH port, existing mdadm RAID1 identities, UUID-based data mount and preserved NFS export settings. See ignored `local/latitude-notes.md` for the specific inventory and connection details. Preserve these private files independently; a public clone does not contain them.
+
+Disko now lays out GPT, a 1 GiB ESP, 16 GiB swap and remaining ext4 root. **Applying this layout erases Debian and all internal-drive state, including Hermes.** External RAID disks and `/dev/md0` never enter Disko. RAID mounting is prepared for the installed system; `nofail` preserves administrative boot access if storage is absent, and NFS remains disabled until post-install verification.
+
+The real administrator public key is still missing. Insert it in `homelab.adminKeys` in ignored `local/latitude.nix`; the production system cannot build until then. Read [installation](docs/installation.md), [Hermes backup inventory](docs/hermes-migration.md), and [current validation](docs/latitude-validation.md). No installation or remote connection has occurred.
