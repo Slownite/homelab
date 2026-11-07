@@ -25,14 +25,14 @@ Future authorized deployment example:
 
 ```sh
 : "${DEPLOY_TARGET:?Set the verified admin SSH destination}"
-nix run .#nixos-rebuild -- dry-activate --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --elevate sudo
-nix run .#nixos-rebuild -- test --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --elevate sudo
+nix run .#nixos-rebuild -- dry-activate --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --sudo
+nix run .#nixos-rebuild -- test --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --sudo
 # Verify a second SSH session, sudo, services, networking and storage before persistence.
-nix run .#nixos-rebuild -- switch --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --elevate sudo
+nix run .#nixos-rebuild -- switch --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --sudo
 ```
 
 `test` changes the running remote system but does not set the next-boot default. It is not a sandbox and can immediately break access. `dry-activate` is a preview, not proof of safety. Keep the current SSH session and console access available. When changing access/network rules, arrange a separately tested timed rollback before activation. Do not remove the old access path until a second session works.
 
-If still reachable, a future authorized rollback is `nix run .#nixos-rebuild -- switch --rollback --target-host "$DEPLOY_TARGET" --elevate sudo`. If unreachable, use the console, reboot into the previous generation or rescue media; see recovery.md. Rollbacks do not revert application data, filesystem changes or secret rotation. Keep known-good generations; automatic garbage collection is off.
+If still reachable, a future authorized rollback is `nix run .#nixos-rebuild -- switch --rollback --target-host "$DEPLOY_TARGET" --sudo`. If unreachable, use the console, reboot into the previous generation or rescue media; see recovery.md. Rollbacks do not revert application data, filesystem changes or secret rotation. Keep known-good generations; automatic garbage collection is off.
 
-The server runs stock NixOS Nix. Ubuntu only evaluates/builds/copies and requests remote activation. CI never has deployment credentials and never activates anything. Verify flags with the pinned tool's help when updating the lock.
+The server runs stock NixOS Nix. Ubuntu only evaluates/builds/copies and requests remote activation. CI never has deployment credentials and never activates anything. The pinned tool uses `--sudo` for remote privilege elevation. Verify flags with the pinned tool's help when updating the lock.
