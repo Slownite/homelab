@@ -41,39 +41,9 @@
       };
     in
     {
-      nixosConfigurations.latitude =
-        if !(builtins.pathExists ./local/latitude.nix) then
-          {
-            # Only a failing sentinel derivation is exposed until private inventory exists.
-            inherit pkgs;
-            config.system.build.toplevel = pkgs.runCommand "latitude-deployment-blocked" { } ''
-              echo "Deployment blocked: provide inspected local/latitude.nix via path flake" >&2
-              exit 1
-            '';
-          }
-        else
-          nixpkgs.lib.nixosSystem {
-            inherit system;
-            modules = common ++ [
-              ./local/latitude.nix
-              ({ config, ... }: {
-                assertions = [
-                  {
-                    assertion = config.homelab.install.internalDisk != null;
-                    message = "Internal disk inspection required";
-                  }
-                  {
-                    assertion = config.homelab.adminKeys != [ ];
-                    message = "Verified administrator keys required";
-                  }
-                  {
-                    assertion = config.systemd.network.networks != { };
-                    message = "Verified network configuration required";
-                  }
-                ];
-              })
-            ];
-          };
+      nixosModules.latitude = {
+        imports = common ++ [ ./hosts/latitude/prerequisites.nix ];
+      };
       formatter.${system} = pkgs.writeShellApplication {
         name = "format-homelab";
         runtimeInputs = [

@@ -16,13 +16,27 @@ Kexec may be blocked by firmware lockdown/Secure Boot or unsupported hardware. T
 
 Copy `hosts/latitude/local.nix.example` into ignored `local/latitude.nix` and replace its deliberately failing assertion only after the inventory is complete. Configure the real internal disk, confirmed UEFI, initrd drivers, actual network and tested administrator keys. The supplied layout supports UEFI only, with GPT, 1 GiB ESP, 16 GiB swap and remaining ext4 root, without encryption. Revisit encryption or swap before installation if needed; legacy BIOS requires a reviewed alternative. No external device belongs in Disko.
 
-Ignored files are omitted from Git flakes. Use an explicit local **path flake**, which includes ignored files in the Nix store: keep this checkout free of plaintext secrets and personal data. Preserve the private module independently for recovery.
+Ignored files are omitted from Git flakes (including dirty Git flakes). Keep the hardware profile private: its disk/RAID identifiers, username, public key comment, network and export settings would become public if committed. Private keys and credentials must never enter either flake or the Nix store.
+
+Use a separate private flake. The prepared ignored `local/flake.nix` imports the public host module and adjacent `latitude.nix`. For a fresh checkout, copy `hosts/latitude/deployment-flake.nix.example` to `local/flake.nix` and set its homelab input to the public repository URL or `git+file:/absolute/path/to/homelab`. Preserve the private directory and its lock file independently. Use a path source for this small private directory only; it must contain no plaintext credentials or unrelated personal files.
+
+From the public repository root:
 
 ```sh
+nix fmt
 nix flake check --no-update-lock-file
-nix eval "path:$PWD#nixosConfigurations.latitude.config.system.build.toplevel.drvPath"
-nix build "path:$PWD#nixosConfigurations.latitude.config.system.build.toplevel" --no-link
+# Initially create the private lock; after public changes, refresh its homelab input:
+nix flake update --flake "path:$PWD/local" homelab
+nix eval --raw "path:$PWD/local#nixosConfigurations.latitude.config.system.build.toplevel.drvPath"
+nix eval --json "path:$PWD/local#nixosConfigurations.latitude.config.disko.devices.disk" --apply 'disks: builtins.mapAttrs (_: d: { inherit (d) device; }) disks'
+nix eval --raw "path:$PWD/local#nixosConfigurations.latitude.config.system.build.diskoScript.drvPath"
+nix eval --json "path:$PWD/local#nixosConfigurations.latitude.config.services.openssh"
+nix eval --json "path:$PWD/local#nixosConfigurations.latitude.config.networking.firewall"
+nix eval --json "path:$PWD/local#nixosConfigurations.latitude.config.systemd.network.networks"
+nix build "path:$PWD/local#nixosConfigurations.latitude.config.system.build.toplevel" --no-link
 ```
+
+The public flake exports no `nixosConfigurations`: requesting a public host fails because the output is absent. It never imports ignored files. CI uses only the separate non-deployable validation fixture. The private system imports the same public host module, including the real Disko layout and prerequisite assertions; it does not import the validation fixture. Missing private files fail at import, and missing disk, keys, network or UEFI prerequisites fail the system toplevel evaluation. Evaluating individual options alone does not enforce every NixOS assertion.
 
 These evaluate/build only. Review the generated Disko configuration and dependencies; check that exactly one verified internal disk is selected. A persistent path is not proof of internal identity.
 
@@ -32,7 +46,7 @@ The following command is documentation only. Supply a verified target and run on
 
 ```sh
 : "${INSTALL_TARGET:?Set the verified root or sudo-capable installer SSH destination}"
-nix run .#nixos-anywhere -- --flake "path:$PWD#latitude" --target-host "$INSTALL_TARGET"
+nix run .#nixos-anywhere -- --flake "path:$PWD/local#latitude" --target-host "$INSTALL_TARGET"
 ```
 
 The pinned nixos-anywhere drives kexec, Disko, installation and reboot. Watch the console; do not blindly retry after failure. After reboot verify installed administrator SSH in a second session, sudo, routes, DNS, time, boot and firewall. Then inspect USB storage again before enabling mounts/exports. Restore services incrementally; do not enable agent scaffolds yet.

@@ -1,3 +1,20 @@
+# Private deployment flake validation — 2026-11-07
+
+This section supersedes the historical results below. On branch `fix/private-deployment-flake`:
+
+- `nix fmt`, `nix flake check --no-update-lock-file`, and `git diff --check` passed.
+- The real private `nixosConfigurations.latitude.config.system.build.toplevel.drvPath` and `system.build.diskoScript.drvPath` evaluated successfully using `path:$PWD/local`. Neither derivation was built or executed.
+- All real NixOS assertions passed. The supplied public administrator key is now present; its ownership and working authentication have not been verified by this task.
+- Evaluated exactly one Disko disk, matching the private internal disk setting, with 1 GiB ESP, 16 GiB swap and ext4 root. External RAID is not a Disko target.
+- Verified key-only SSH, disabled root SSH, configured administrator allowlist, matching SSH/firewall port, and audited wired IPv4 DHCP.
+- Git ignore verification confirms the private profile is excluded from Git sources. The public flake now exports only the host module and safe validation checks; the private flake owns the real NixOS system.
+- The local Git input is dirty. Nix evaluated the tracked working tree but declined to write its lock. After committing the public changes, refresh and preserve the private lock as documented in installation.md.
+- No installation, Disko execution, nixos-anywhere invocation, remote connection, system activation or workstation configuration change occurred.
+
+Exact evaluation commands are in [installation.md](installation.md). Physical disk identity, backups, console recovery, boot and live network/authentication behavior remain installation prerequisites.
+
+---
+
 # Latitude 5300 preparation validation
 
 Executed on the Ubuntu development workstation, 2026-11-07. No Latitude connection, physical Disko execution, installation, remote deployment or operating-system change was performed. Flake inputs remain unchanged.
