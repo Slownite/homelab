@@ -10,12 +10,12 @@
     description = "Verified administrator public keys";
   };
   config = {
+    users.mutableUsers = true;
     users.users.${config.homelab.adminUser} = {
       isNormalUser = true;
       extraGroups = [ "wheel" ];
       openssh.authorizedKeys.keys = config.homelab.adminKeys;
       hashedPassword = "!";
-      mutableUsers = true;
     };
     # Remote elevation is explicit for this key-only administrator; Nix trust stays root-only.
     security.sudo.extraRules = [
