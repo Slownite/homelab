@@ -74,3 +74,20 @@ After installation, verify RAID identity, both members, array health, filesystem
 The pinned nixos-anywhere supports a local `--vm-test` without a target, but this task prohibits invoking nixos-anywhere. Its installation VM test is deferred until the real key is supplied and a separate VM-test run is authorized. Never pass a physical device through to an installation VM.
 
 References: [SSH port and VM-test flags](https://github.com/nix-community/nixos-anywhere/blob/main/docs/reference.md).
+
+## Local VM installation test
+
+The private flake may expose `latitude-vm` using `latitude.extendModules` with
+`homelab.nixosModules.installationVM` (see the deployment flake example).
+Run `nix run .#nixos-anywhere -- --vm-test --flake "path:$PWD/local#latitude-vm"`.
+Refresh the private homelab lock after committing public changes first.
+This task authorizes this local VM test; the historical deferral above no longer applies.
+
+The pinned Disko `makeDiskoTest` API supports `extraInstallerConfig`.
+The test module uses it to force one 32768 MiB virtual disk instead of the
+4096 MiB default. EFI remains 1 GiB, swap 16 GiB, and root uses the remainder.
+Disko's test harness substitutes virtual device paths and tests the installed
+system in QEMU. No physical device is passed through. The separate test output
+changes only `system.build.installTest`; production partitioning, physical disk
+identity, RAID configuration and prerequisite assertions remain unchanged.
+Do not use a VM result as physical deployment readiness evidence.

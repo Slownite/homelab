@@ -41,6 +41,7 @@
       };
     in
     {
+      nixosModules.installationVM = ./tests/installation-vm.nix;
       nixosModules.latitude = {
         imports = common ++ [ ./hosts/latitude/prerequisites.nix ];
       };
