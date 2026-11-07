@@ -1,5 +1,22 @@
 # Normal deployment — future authorized operation
 
+The root `justfile` provides manual shortcuts (install `just` on the workstation):
+
+```sh
+just check
+just build latitude
+just deploy-preview admin@verified-host latitude
+just deploy-test admin@verified-host latitude
+# After verifying a second SSH session and services:
+just deploy admin@verified-host latitude
+```
+
+Replace the example SSH destination with the verified target; configure any
+nonstandard deployment SSH port in your SSH client configuration. `deploy`
+asks for confirmation. These recipes require the same explicit authorization
+and checklist below. `check` validates only the public fixture; `build` uses
+the private host. Neither refreshes the private flake lock automatically.
+
 Provisioning uses nixos-anywhere once; normal configuration changes use the pinned `nixos-rebuild`. Disko partitioning is a separate destructive operation and is never part of routine deployment. Never run `switch` without an explicit remote target from Ubuntu.
 
 First format, run `nix flake check --no-update-lock-file`, review the diff and private module, then evaluate and build as described in installation.md. Use the separate private flake described in installation.md, with a current lock and no plaintext credentials. Supply the verified installed admin SSH destination; do not infer it from the workstation.
