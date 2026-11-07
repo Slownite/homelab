@@ -19,7 +19,7 @@ flowchart LR
 
 NixOS 26.05 is the selected stable release ([official release](https://nixos.org/blog/announcements/2026/nixos-2605/)). Standard Nix from NixOS runs on the server; Determinate Nix is only a workstation tool. Flakes pin nixpkgs, Disko, sops-nix and nixos-anywhere. Small explicit modules configure systemd, networkd, SSH and firewall policy.
 
-`nixosConfigurations.latitude` is the intended production host. Without ignored `local/latitude.nix`, its system build is a deliberate failing derivation. This allows flake inspection but prevents a successful build/install. With that file, assertions require disk selection, SSH keys and network configuration. These checks cannot prove that supplied hardware facts are correct.
+The public flake exports no installable host. Actual deployment uses a separate ignored `local/flake.nix`, importing the exported `nixosModules.latitude` and private hardware profile. The public Git flake never imports ignored files. See [installation](docs/installation.md) for setup and exact evaluation commands. Disk, SSH key and network prerequisites remain enforced; validation cannot prove hardware facts.
 
 CI separately evaluates non-deployable module fixtures, including the opt-in container. It never builds an installable validation system. Passing checks means module validation, **not deployment readiness**.
 
