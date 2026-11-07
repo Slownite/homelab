@@ -91,3 +91,11 @@ system in QEMU. No physical device is passed through. The separate test output
 changes only `system.build.installTest`; production partitioning, physical disk
 identity, RAID configuration and prerequisite assertions remain unchanged.
 Do not use a VM result as physical deployment readiness evidence.
+
+Validation on Ubuntu, 2026-11-07: `nix fmt` and
+`nix flake check --no-update-lock-file` passed. Private `local/validate.nix`
+passed after refreshing the public input and updating its stale missing-key
+expectation (the private profile now supplies a key). The command above passed
+with exit code 0, including partitioning, installation into the virtual disk,
+and booting the installed VM. No remote connection or physical storage operation
+was performed. Physical deployment gates remain separate.
