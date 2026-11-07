@@ -42,6 +42,15 @@ These evaluate/build only. Review the generated Disko configuration and dependen
 
 ## Destructive future command
 
+The equivalent manual shortcut is
+`just install admin@verified-host latitude 2222 22`, with arguments for the
+verified installer destination, private host output, initial SSH port and
+post-kexec SSH port. Replace all example values with audited settings.
+The recipe asks for confirmation before running the destructive installer.
+It does not create a hardware profile: another computer requires its own
+reviewed private flake output and verified internal disk configuration.
+All installation gates and explicit authorization requirements still apply.
+
 The following command is documentation only. Supply a verified target and run only under new explicit installation authorization, after all gates above. **It can destroy the selected system disk.**
 
 ```sh
