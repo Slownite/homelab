@@ -56,7 +56,14 @@ let
       ) cfg.assertions;
     in
     if failed == [ ] then true else throw (builtins.concatStringsSep "\n" (map (a: a.message) failed));
+  production =
+    (validation.extendModules {
+      modules = [ { homelab.install.internalDisk = "/dev/disk/by-id/evaluation-only"; } ];
+    }).config.disko.devices.disk.internal.content.partitions;
   tests = [
+    (ensure (
+      production.ESP.size == "1G" && production.swap.size == "16G"
+    ) "Production EFI/swap sizes regressed")
     (ensure (checkAssertions raid) "RAID module assertion failed")
     (ensure (raid.boot.swraid.enable && raid.disko.devices.disk == { }) "RAID must not enter Disko")
     (ensure (raid.fileSystems."/srv/raid-fixture".noCheck
