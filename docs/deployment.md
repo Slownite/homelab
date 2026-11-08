@@ -23,6 +23,20 @@ Provisioning uses nixos-anywhere once; normal configuration changes use the pinn
 
 First format, run `nix flake check --no-update-lock-file`, review the diff and private module, then evaluate and build as described in installation.md. Use the separate private flake described in installation.md, with a current lock and no plaintext credentials. Supply the verified installed admin SSH destination; do not infer it from the workstation.
 
+## Nix store trust bootstrap
+
+The Latitude's Nix daemon trusts `root` and the administrator account `sam`
+through `nix.settings.trusted-users`. This grants `sam` root-equivalent
+privileges through Nix; it does not change SSH authentication or enable root
+SSH login.
+
+The ordinary `just deploy latitude` path cannot install this setting for the
+first time: its `nix-copy-closure` store import is rejected until the daemon
+already trusts a signing key for the copied paths. Install the first generation
+that contains this setting through a trusted Nix store import, then use the
+normal deployment command. Do not use that bootstrap to modify Disko, RAID, or
+NFS configuration.
+
 Future authorized deployment example:
 
 ```sh
