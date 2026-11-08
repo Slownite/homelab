@@ -15,7 +15,7 @@ let
           homelab.nfs = {
             enable = true;
             mountPoint = "/srv/fixture";
-            exports = "/srv/fixture 127.0.0.1(ro,root_squash)";
+            exports = "/srv/fixture 127.0.0.1(ro,root_squash,mountpoint)";
           };
           fileSystems."/srv/fixture" = {
             device = "none";
