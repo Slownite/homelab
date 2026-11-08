@@ -11,8 +11,10 @@ just deploy-test admin@verified-host latitude
 just deploy admin@verified-host latitude
 ```
 
-Replace the example SSH destination with the verified target; configure any
-nonstandard deployment SSH port in your SSH client configuration. `deploy`
+Replace the example SSH destination with the verified target. Deployment recipes
+default to SSH port **2222**; override it with the third argument, for example
+`just deploy-preview admin@verified-host latitude 22`. The recipes preserve existing
+`NIX_SSHOPTS` and append the selected port. `deploy`
 asks for confirmation. These recipes require the same explicit authorization
 and checklist below. `check` validates only the public fixture; `build` uses
 the private host. Neither refreshes the private flake lock automatically.
@@ -25,6 +27,7 @@ Future authorized deployment example:
 
 ```sh
 : "${DEPLOY_TARGET:?Set the verified admin SSH destination}"
+export NIX_SSHOPTS="${NIX_SSHOPTS:+$NIX_SSHOPTS }-p 2222"
 nix run .#nixos-rebuild -- dry-activate --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --sudo
 nix run .#nixos-rebuild -- test --flake "path:$PWD/local#latitude" --target-host "$DEPLOY_TARGET" --sudo
 # Verify a second SSH session, sudo, services, networking and storage before persistence.
