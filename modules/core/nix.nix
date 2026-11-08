@@ -4,7 +4,10 @@
       "nix-command"
       "flakes"
     ];
-    trusted-users = [ "root" ];
+    trusted-users = [
+      "root"
+      "sam"
+    ];
   };
   nix.gc = {
     automatic = false;
