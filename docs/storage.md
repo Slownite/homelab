@@ -19,3 +19,18 @@ Keep OS state, application state, NFS data and backup repositories distinct. Res
 The exact export path, subnet, options and anonymous numeric IDs are preserved in the disabled private NFS settings. No account UID/GID has been inferred from the SSH username: verify existing 1000:1000 ownership and intended identities before exports. Future NFS activation needs client-scoped NFSv4 firewall rules; the current firewall exposes only SSH. Keep version 4.2 client compatibility. Verify `findmnt`, array member health and expected source UUID before enabling `homelab.nfs.enable`. Its mount-unit dependencies and mountpoint condition prevent exporting an underlying empty directory. Test mount-failure behavior before service use.
 
 Native software RAID reference: [NixOS module](https://github.com/NixOS/nixpkgs/blob/nixos-26.05/nixos/modules/tasks/swraid.nix).
+
+## Restored NFS service
+
+The private deployment enables the preserved export for 192.168.8.0/24 with
+the original squash IDs and options, plus the exports(5) `mountpoint` guard.
+TCP 2049 is accepted only from that subnet; no global NFS port is opened.
+NFSv3 and UDP are disabled; NFS 4.2 retains the existing absolute export path.
+
+The server requires, orders after, and binds to the mount unit, with
+RequiresMountsFor and ConditionPathIsMountPoint. Mount loss detected by systemd
+stops the server; the export guard prevents exporting the underlying directory.
+Hardware I/O failure can leave a filesystem mounted: these dependencies do not
+detect every USB failure or guarantee uninterrupted service. No unplug test was
+performed. After deployment verify exportfs, findmnt, service dependencies and
+the existing Ubuntu NFS 4.2 client before considering restoration operational.
