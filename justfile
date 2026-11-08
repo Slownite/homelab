@@ -14,20 +14,20 @@ build host="latitude":
     nix build "path:$PWD/local#nixosConfigurations.{{host}}.config.system.build.toplevel" --no-link
 
 # Preview remote activation. Requires explicit deployment authorization.
-deploy-preview target host="latitude":
+deploy-preview target host="latitude" ssh_port="2222":
     test -n "{{target}}"
-    nix run .#nixos-rebuild -- dry-activate --flake "path:$PWD/local#{{host}}" --target-host "{{target}}" --sudo
+    NIX_SSHOPTS="${NIX_SSHOPTS:+$NIX_SSHOPTS }-p {{ssh_port}}" nix run .#nixos-rebuild -- dry-activate --flake "path:$PWD/local#{{host}}" --target-host "{{target}}" --sudo
 
 # Activate temporarily; verify access and services before running deploy.
-deploy-test target host="latitude":
+deploy-test target host="latitude" ssh_port="2222":
     test -n "{{target}}"
-    nix run .#nixos-rebuild -- test --flake "path:$PWD/local#{{host}}" --target-host "{{target}}" --sudo
+    NIX_SSHOPTS="${NIX_SSHOPTS:+$NIX_SSHOPTS }-p {{ssh_port}}" nix run .#nixos-rebuild -- test --flake "path:$PWD/local#{{host}}" --target-host "{{target}}" --sudo
 
 # Persist remote activation after the deployment checklist and test.
 [confirm("Persist configuration on the specified remote target?")]
-deploy target host="latitude":
+deploy target host="latitude" ssh_port="2222":
     test -n "{{target}}"
-    nix run .#nixos-rebuild -- switch --flake "path:$PWD/local#{{host}}" --target-host "{{target}}" --sudo
+    NIX_SSHOPTS="${NIX_SSHOPTS:+$NIX_SSHOPTS }-p {{ssh_port}}" nix run .#nixos-rebuild -- switch --flake "path:$PWD/local#{{host}}" --target-host "{{target}}" --sudo
 
 # DESTRUCTIVE: complete docs/installation.md and verify the internal disk first.
 # Port parameters cover the initial SSH connection and the kexec installer.
