@@ -23,9 +23,9 @@ The public flake exports no installable host. Actual deployment uses a separate 
 
 CI separately evaluates non-deployable module fixtures, including the opt-in container. It never builds an installable validation system. Passing checks means module validation, **not deployment readiness**.
 
-Implemented: stable locked flake, core system modules, SSH/firewall, conditional internal-disk UEFI/ext4 layout, sops integration, inactive storage/NFS/Restic/Tailscale scaffolds, offline example container, blocked agent integration points, local checks and CI.
+Implemented: stable locked flake, core system modules, SSH/firewall, conditional internal-disk UEFI/ext4 layout, sops integration, inactive storage/NFS/Restic/Tailscale scaffolds, offline example container, staged native Hermes container integration, local checks and CI.
 
-Prepared privately after audit: hardware settings and existing RAID assembly/mount. Planned: post-install storage verification and NFS activation, enrolled Tailscale, tested backups, monitoring, Hermes migration and verified PR-Agent packaging. No backups or services have been deployed.
+Prepared privately after audit: hardware settings and existing RAID assembly/mount. Planned: post-install storage verification and NFS activation, enrolled Tailscale, tested backups, Hermes state migration and activation, monitoring, and verified PR-Agent packaging. No backups or services have been deployed.
 
 ## Layout
 
