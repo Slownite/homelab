@@ -20,12 +20,15 @@ in
     ];
 
     # The veth only connects Hermes to the host. networkd masquerades its
-    # egress; no host port is forwarded into the container.
+    # egress; no host port is forwarded into the container. Suppress automatic
+    # IPv4 link-local addressing: the static 10.231.136.1 address is the only
+    # host-side address for this isolated link.
     systemd.network.networks."80-ve-hermes" = {
       matchConfig.Name = "ve-hermes";
       networkConfig = {
         IPv4Forwarding = true;
         IPMasquerade = "ipv4";
+        LinkLocalAddressing = "no";
       };
     };
 
@@ -50,7 +53,15 @@ in
 
         system.stateVersion = "26.05";
         nix.enable = false;
-        networking.useHostResolvConf = true;
+        # The host's resolv.conf names its loopback-only resolved stub. Run an
+        # independent resolver in the private namespace and reach its public
+        # upstreams through the existing veth masquerade.
+        networking.useHostResolvConf = lib.mkForce false;
+        networking.nameservers = [
+          "1.1.1.1"
+          "1.0.0.1"
+        ];
+        services.resolved.enable = true;
         networking.firewall.enable = true;
 
         users.groups.hermes.gid = 992;
