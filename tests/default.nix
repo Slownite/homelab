@@ -116,6 +116,16 @@ let
       && builtins.elem "/nix/var/nix/daemon-socket" hermes.containers.hermes.tmpfs
     ) "Hermes must use the native package without OCI or Nix daemon access")
     (ensure (
+      hermes.containers.hermes.config.systemd.services.hermes-agent.environment.HOME
+      == "/var/lib/homelab/hermes"
+      &&
+        hermes.containers.hermes.config.systemd.services.hermes-agent.environment.HERMES_HOME
+        == "/var/lib/homelab/hermes/.hermes"
+      &&
+        hermes.containers.hermes.config.systemd.services.hermes-agent.serviceConfig.WorkingDirectory
+        == "/var/lib/homelab/hermes/workspace"
+    ) "Hermes service must read the persistent nested home")
+    (ensure (
       hermes.systemd.services."container@hermes".serviceConfig.MemoryMax == "6G"
       && hermes.systemd.services."container@hermes".serviceConfig.TasksMax == 512
     ) "Hermes container limits regressed")

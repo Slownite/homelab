@@ -11,10 +11,12 @@ changing the host's NixOS package set. This Tier 2 compatibility exception is
 intentional and must be retested whenever either lock input changes.
 
 The host bind-mounts only `/var/lib/homelab/hermes` into the container at the
-same path. Hermes's `stateDir` is that directory and its `HERMES_HOME` is
-`/var/lib/homelab/hermes/.hermes`. The service identity is the container-only
-system user and group `hermes` (UID/GID 992). The numeric identity makes bind
-mount ownership stable across rebuilds without creating a host login user.
+same path. The native `hermes-agent` systemd service runs with
+`HOME=/var/lib/homelab/hermes`, `HERMES_HOME=/var/lib/homelab/hermes/.hermes`,
+and `WorkingDirectory=/var/lib/homelab/hermes/workspace`. The service identity
+is the container-only system user and group `hermes` (UID/GID 992). The numeric
+identity makes bind-mount ownership stable across rebuilds without creating a
+host login user.
 
 The container has a private veth (`10.231.136.2` through host
 `10.231.136.1`), copied host DNS configuration, and host-side IPv4
@@ -84,84 +86,130 @@ while validating.
 
 ## State migration and compatibility gate
 
-Do not run these commands during repository initialization. They deliberately
-require a deployed Stage A system, an explicit maintenance window, and the
-backup paths supplied in the task. They never delete the workstation backup.
+The original Debian restore is at the **stateDir root**. That is not Hermes's
+runtime home under the pinned upstream NixOS module: it derives
+`HERMES_HOME` as `$stateDir/.hermes`, creates that directory during activation,
+and starts Hermes with that value. Therefore the generated
+`/var/lib/homelab/hermes/.hermes` is expected; it lacks the restored `.env`
+because the module has no `environmentFiles` configured. The gateway found no
+platform configuration because it read that generated home, not the restored
+root tree.
 
-1. Stop the old Debian gateway before the Stage B activation. Never operate two
-   Discord gateways with the same credentials.
-2. Inventory the backup **before copying**. Identify the directory that was the
-   old `~/.hermes`, any files referenced outside it, the source Hermes version,
-   the CUA launch command, and the CUA driver version. Make a separately
-   restorable archive of the exact source state; do not copy the Debian venv.
-3. Transfer into a timestamped host-side staging directory. Substitute the
-   verified target; this command intentionally has no `--delete`:
+The following is the one-time, host-side correction for the already-deployed
+container. It is intentionally fail-closed: it creates an ACL/xattr-preserving
+archive before moving the generated home, copies only into a newly empty
+`HERMES_HOME`, and writes a root-owned completion marker only after the copied
+tree passes structural checks. A rerun after success exits without changing
+state. A partial run has no marker and refuses to merge with its partial
+destination; restore from the recorded archive or investigate first.
+
+Do not run this during repository initialization. It requires the deployed
+Stage A system and an explicit maintenance window. It neither contacts Discord
+nor starts the gateway.
 
 ```sh
-set -eu
+set -euo pipefail
+
+state_dir=/var/lib/homelab/hermes
+hermes_home="$state_dir/.hermes"
+archive_dir=/var/lib/homelab/hermes-import
+marker="$state_dir/.hermes-migration-v1"
+
+# Do not alter state while a gateway could use it, and make success idempotent.
+if sudo nixos-container run hermes -- systemctl is-active --quiet hermes-agent; then
+  printf '%s\n' 'hermes-agent is active; stop it and investigate before migration' >&2
+  exit 1
+fi
+if sudo test -e "$marker"; then
+  printf '%s\n' "migration already completed; inspect $marker and do not rerun" >&2
+  exit 0
+fi
+
+# Confirm this is the known root-layout restore without exposing its contents.
+for path in config.yaml .env SOUL.md state.db memories sessions skills; do
+  sudo test -e "$state_dir/$path" || {
+    printf '%s\n' "missing expected restored state: $state_dir/$path" >&2
+    exit 1
+  }
+done
+sudo test -d "$hermes_home" || {
+  printf '%s\n' "missing generated Hermes home: $hermes_home" >&2
+  exit 1
+}
+
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
-target="$DEPLOY_TARGET"
-source_home="$HOME/Backups/latitude/hermes" # inspect; do not assume its layout
-ssh -p 2222 "$target" "sudo install -d -m 0700 -o root -g root /var/lib/homelab/hermes-import/$stamp"
-rsync -aHAX --numeric-ids --protect-args --info=progress2 \
-  --rsync-path='sudo rsync' -e 'ssh -p 2222' \
-  "$source_home/" "$target:/var/lib/homelab/hermes-import/$stamp/"
-```
+archive="$archive_dir/hermes-pre-home-migration-$stamp.tar"
+generated_home="$state_dir/.hermes.generated.$stamp"
+sudo test ! -e "$archive"
+sudo test ! -e "$generated_home"
+sudo install -d -m 0700 -o root -g root "$archive_dir"
 
-4. On Latitude, make a restorable archive of the transferred staging tree,
-   inspect it, and select the subdirectory that actually contains `config.yaml`,
-   `auth.json`, memory, sessions, skills, MCP tokens, and other Hermes state.
-   The name below is intentionally a placeholder selected from that inventory:
+# Archive both independent trees before changing either. Do not inspect or
+# print .env/auth contents.
+sudo tar --acls --xattrs --numeric-owner -C "$(dirname "$state_dir")" \
+  -cpf "$archive" "$(basename "$state_dir")"
 
-```sh
-set -eu
-stamp=REPLACE_WITH_THE_TRANSFER_TIMESTAMP
-source_home=/var/lib/homelab/hermes-import/$stamp/REPLACE_WITH_INSPECTED_HERMES_HOME
-sudo tar --acls --xattrs --numeric-owner -C "$(dirname "$source_home")" \
-  -cpf "/var/lib/homelab/hermes-import/$stamp.pre-restore.tar" "$(basename "$source_home")"
-sudo find /var/lib/homelab/hermes/.hermes -maxdepth 1 -printf '%f\n' | sort
-```
-
-5. The Stage A activation creates a Nix-managed empty skeleton. Preserve it
-   rather than overwriting it, then restore only after the inspection confirms
-   the selected source and the destination contains no prior migrated state:
-
-```sh
-set -eu
-stamp=REPLACE_WITH_THE_TRANSFER_TIMESTAMP
-source_home=/var/lib/homelab/hermes-import/$stamp/REPLACE_WITH_INSPECTED_HERMES_HOME
-sudo mv /var/lib/homelab/hermes/.hermes "/var/lib/homelab/hermes/.hermes.stage-a.$stamp"
-sudo install -d -m 0750 -o 992 -g 992 /var/lib/homelab/hermes/.hermes
+# Never merge the generated state with the Debian restore.
+sudo mv "$hermes_home" "$generated_home"
+sudo install -d -m 2770 -o 992 -g 992 "$hermes_home"
 sudo rsync -aHAX --numeric-ids --protect-args --chown=992:992 \
-  "$source_home/" /var/lib/homelab/hermes/.hermes/
-sudo chmod 0750 /var/lib/homelab/hermes /var/lib/homelab/hermes/.hermes
-sudo find /var/lib/homelab/hermes/.hermes -type d -exec chmod 0750 {} +
-sudo find /var/lib/homelab/hermes/.hermes -type f -exec chmod u=rw,g=,o= {} +
+  --exclude='/.hermes' \
+  --exclude='/.hermes.generated.*' \
+  --exclude='/.hermes-migration-v1' \
+  "$state_dir/" "$hermes_home/"
+
+# Own and restrict only the new runtime home; retain every source file and the
+# quarantined generated home unchanged.
+sudo chown -R 992:992 "$hermes_home"
+sudo chmod 2770 "$hermes_home"
+sudo find "$hermes_home" -type d -exec chmod 2770 {} +
+sudo find "$hermes_home" -type f -exec chmod u=rw,g=,o= {} +
+sudo chmod 0640 "$hermes_home/.env"
+
+for path in config.yaml .env SOUL.md state.db memories sessions skills; do
+  sudo test -e "$hermes_home/$path" || {
+    printf '%s\n' "copy verification failed: $hermes_home/$path" >&2
+    exit 1
+  }
+done
+printf 'archive=%s\ngenerated_home=%s\n' "$archive" "$generated_home" |
+  sudo tee "$marker" >/dev/null
+sudo chown root:root "$marker"
+sudo chmod 0600 "$marker"
 ```
 
-Do not use `hermes config migrate`. First run the pinned package's read-only
-checks with the gateway still disabled:
+The original root layout remains intact as an additional recovery copy. The
+generated home remains separately quarantined at the path recorded in the
+marker. Do not delete either tree or merge files between them until the
+migration has been validated.
+
+Run the pinned package's non-network configuration checks with the gateway
+still stopped. These commands set exactly the service environment without
+printing credentials:
 
 ```sh
 sudo nixos-container run hermes -- sudo -u hermes env \
-  HERMES_HOME=/var/lib/homelab/hermes/.hermes hermes config check
+  HOME=/var/lib/homelab/hermes \
+  HERMES_HOME=/var/lib/homelab/hermes/.hermes \
+  hermes config check
 sudo nixos-container run hermes -- sudo -u hermes env \
-  HERMES_HOME=/var/lib/homelab/hermes/.hermes hermes doctor
+  HOME=/var/lib/homelab/hermes \
+  HERMES_HOME=/var/lib/homelab/hermes/.hermes \
+  hermes doctor
 ```
 
 A non-zero result, an outdated/incompatible format report, unexpected file
-write, or missing integration is a stop condition. Keep both archives, restore
-the preserved Stage A skeleton if needed, and investigate against the pinned
-Hermes revision. `doctor --live` is deliberately excluded because it makes
-real provider/tool calls.
+write, or missing integration is a stop condition. Keep the archive, source
+tree, and quarantined generated home; remove no marker and do not activate
+Discord.
 
 ## Credentials and Discord
 
-The restored `.env` and `auth.json` remain in the persistent state directory
-with restrictive permissions. Hermes's NixOS module does not rewrite `.env`
-when `environmentFiles` is empty, and it seeds `auth.json` only when an
-`authFile` is explicitly configured. Thus the migration preserves runtime
-credential refresh state.
+The restored `.env` remains at `HERMES_HOME/.env` with mode `0640` and
+ownership `992:992`. The upstream module does not rewrite `.env` when both
+`environment` and `environmentFiles` are empty, and it seeds `auth.json` only
+when an `authFile` is explicitly configured. Thus this migration preserves the
+runtime Discord credential source without placing it in Git or the Nix store.
 
 After the migration is proven, credentials may be moved to the existing
 sops-nix strategy in the ignored private configuration. Declare the encrypted
