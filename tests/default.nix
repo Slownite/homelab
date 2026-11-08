@@ -102,31 +102,53 @@ let
     (ensure (
       hermes.containers.hermes.autoStart
       && hermes.containers.hermes.privateNetwork
+      && hermes.containers.hermes.hostAddress == "10.231.136.1"
+      && hermes.containers.hermes.localAddress == "10.231.136.2"
       && hermes.containers.hermes.forwardPorts == [ ]
     ) "Hermes must autostart privately with no inbound ports")
     (ensure (
       hermes.containers.hermes.bindMounts."/var/lib/homelab/hermes".hostPath == "/var/lib/homelab/hermes"
       && !hermes.containers.hermes.bindMounts."/var/lib/homelab/hermes".isReadOnly
-    ) "Hermes must use only its writable persistent state mount")
+      && builtins.attrNames hermes.containers.hermes.bindMounts == [ "/var/lib/homelab/hermes" ]
+      && hermes.containers.hermes.privateUsers == "identity"
+    ) "Hermes must retain only its writable persistent state mount")
     (ensure (
       hermes.containers.hermes.config.nix.enable == false
       && hermes.containers.hermes.config.services.hermes-agent.container.enable == false
-      && hermes.containers.hermes.config.networking.useHostResolvConf
+      && !hermes.containers.hermes.config.networking.useHostResolvConf
+      && hermes.containers.hermes.config.services.resolved.enable
+      &&
+        hermes.containers.hermes.config.networking.nameservers == [
+          "1.1.1.1"
+          "1.0.0.1"
+        ]
       && !hermes.virtualisation.docker.enable
       && builtins.elem "/nix/var/nix/daemon-socket" hermes.containers.hermes.tmpfs
-    ) "Hermes must use the native package without OCI or Nix daemon access")
+    ) "Hermes must use its own resolver with reachable upstream DNS")
     (ensure (
-      hermes.containers.hermes.config.systemd.services.hermes-agent.environment.HOME
-      == "/var/lib/homelab/hermes"
+      hermes.systemd.network.networks."80-ve-hermes".networkConfig.IPv4Forwarding
+      && hermes.systemd.network.networks."80-ve-hermes".networkConfig.IPMasquerade == "ipv4"
+      && hermes.systemd.network.networks."80-ve-hermes".networkConfig.LinkLocalAddressing == "no"
+    ) "Hermes veth must retain its single outbound NAT path and static address")
+    (ensure (
+      hermes.containers.hermes.config.users.groups.hermes.gid == 992
+      && hermes.containers.hermes.config.users.users.hermes.uid == 992
+      && hermes.containers.hermes.config.services.hermes-agent.user == "hermes"
+      && hermes.containers.hermes.config.services.hermes-agent.group == "hermes"
+      &&
+        hermes.containers.hermes.config.systemd.services.hermes-agent.environment.HOME
+        == "/var/lib/homelab/hermes"
       &&
         hermes.containers.hermes.config.systemd.services.hermes-agent.environment.HERMES_HOME
         == "/var/lib/homelab/hermes/.hermes"
       &&
         hermes.containers.hermes.config.systemd.services.hermes-agent.serviceConfig.WorkingDirectory
         == "/var/lib/homelab/hermes/workspace"
-    ) "Hermes service must read the persistent nested home")
+    ) "Hermes service must retain its persistent home and identity")
     (ensure (
-      hermes.systemd.services."container@hermes".serviceConfig.MemoryMax == "6G"
+      hermes.systemd.services."container@hermes".serviceConfig.MemoryHigh == "5G"
+      && hermes.systemd.services."container@hermes".serviceConfig.MemoryMax == "6G"
+      && hermes.systemd.services."container@hermes".serviceConfig.CPUQuota == "300%"
       && hermes.systemd.services."container@hermes".serviceConfig.TasksMax == 512
     ) "Hermes container limits regressed")
     (ensure (

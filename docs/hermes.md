@@ -19,9 +19,10 @@ identity makes bind-mount ownership stable across rebuilds without creating a
 host login user.
 
 The container has a private veth (`10.231.136.2` through host
-`10.231.136.1`), copied host DNS configuration, and host-side IPv4
-masquerading. It has no forwarded ports. `container@hermes` starts at boot with
-`MemoryHigh=5G`, `MemoryMax=6G`, `CPUQuota=300%`, and `TasksMax=512`.
+`10.231.136.1`), its own `systemd-resolved` stub, and Cloudflare upstream DNS
+(`1.1.1.1`, `1.0.0.1`) reached through host-side IPv4 masquerading. It has no
+forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
+`MemoryMax=6G`, `CPUQuota=300%`, and `TasksMax=512`.
 
 ## Isolation boundary
 
@@ -83,6 +84,29 @@ sudo findmnt -R /var/lib/nixos-containers/hermes | grep -E 'homelab/hermes|nix/v
 The final command must show the dedicated state bind and must not show an
 accessible Nix daemon socket. Do not print `.env`, `auth.json`, or any token
 while validating.
+
+## DNS and outbound-connectivity verification
+
+The host's copied `resolv.conf` pointed the container at `127.0.0.53`, but
+the container did not run a resolver at that loopback address. Hermes now owns
+its resolver: `systemd-resolved` listens on the container-local stub and sends
+queries to its declared upstreams through the existing `ve-hermes` IPv4
+masquerade. `LinkLocalAddressing=no` prevents systemd-networkd from adding a
+second automatic IPv4 link-local address beside `10.231.136.1`. No additional
+NAT or inbound forwarding is configured.
+
+Keep the Discord gateway stopped while checking DNS and egress:
+
+```sh
+sudo systemctl -M hermes is-active systemd-resolved
+sudo systemd-run -M hermes --wait --pipe --collect \
+  /run/current-system/sw/bin/getent ahostsv4 discord.com
+sudo systemd-run -M hermes --wait --pipe --collect \
+  /run/current-system/sw/bin/curl --fail --silent --show-error --head https://example.com
+```
+
+The final request proves outbound HTTPS without using Discord authentication.
+Do not inspect Hermes credentials or start `hermes-agent` for these checks.
 
 ## State migration and compatibility gate
 
