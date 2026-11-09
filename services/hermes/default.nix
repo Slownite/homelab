@@ -25,6 +25,13 @@ in
     systemd.network.networks."10-ve-hermes" = {
       matchConfig.Name = "ve-hermes";
       address = [ "10.231.136.1/32" ];
+      routes = [
+        {
+          Destination = "10.231.136.2/32";
+          Scope = "link";
+          PreferredSource = "10.231.136.1";
+        }
+      ];
       networkConfig = {
         IPv4Forwarding = true;
         LinkLocalAddressing = "no";
