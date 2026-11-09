@@ -19,12 +19,13 @@ in
       "d ${stateDir} 0750 992 992 - -"
     ];
 
-    # The veth only connects Hermes to the host. networkd masquerades its
-    # egress; no host port is forwarded into the container. Suppress automatic
-    # IPv4 link-local addressing: the static 10.231.136.1 address is the only
-    # host-side address for this isolated link.
-    systemd.network.networks."80-ve-hermes" = {
+    # networkd applies only the first matching .network file. The systemd
+    # package's 80-container-ve.network matches ve-* and assigns a dynamic
+    # subnet, so this must sort before it. The native container service also
+    # configures this /32 while creating the veth.
+    systemd.network.networks."10-ve-hermes" = {
       matchConfig.Name = "ve-hermes";
+      address = [ "10.231.136.1/32" ];
       networkConfig = {
         IPv4Forwarding = true;
         IPMasquerade = "ipv4";

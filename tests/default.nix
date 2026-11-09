@@ -126,10 +126,13 @@ let
       && builtins.elem "/nix/var/nix/daemon-socket" hermes.containers.hermes.tmpfs
     ) "Hermes must use its own resolver with reachable upstream DNS")
     (ensure (
-      hermes.systemd.network.networks."80-ve-hermes".networkConfig.IPv4Forwarding
-      && hermes.systemd.network.networks."80-ve-hermes".networkConfig.IPMasquerade == "ipv4"
-      && hermes.systemd.network.networks."80-ve-hermes".networkConfig.LinkLocalAddressing == "no"
-    ) "Hermes veth must retain its single outbound NAT path and static address")
+      !hermes.systemd.network.networks ? "80-ve-hermes"
+      && hermes.systemd.network.networks."10-ve-hermes".matchConfig.Name == "ve-hermes"
+      && hermes.systemd.network.networks."10-ve-hermes".address == [ "10.231.136.1/32" ]
+      && hermes.systemd.network.networks."10-ve-hermes".networkConfig.IPv4Forwarding
+      && hermes.systemd.network.networks."10-ve-hermes".networkConfig.IPMasquerade == "ipv4"
+      && hermes.systemd.network.networks."10-ve-hermes".networkConfig.LinkLocalAddressing == "no"
+    ) "Hermes must select its pre-generic veth networkd policy for outbound NAT")
     (ensure (
       hermes.containers.hermes.config.users.groups.hermes.gid == 992
       && hermes.containers.hermes.config.users.users.hermes.uid == 992

@@ -24,6 +24,37 @@ The container has a private veth (`10.231.136.2` through host
 forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 `MemoryMax=6G`, `CPUQuota=300%`, and `TasksMax=512`.
 
+## Definition of Done
+
+### Scope
+
+- User: Latitude administrator.
+- Interface: host `systemd-networkd` configuration and Hermes's private veth.
+- Included: Hermes outbound IPv4 TCP, UDP, and DNS through host-side masquerading.
+- Excluded: inbound forwarding, a second NAT implementation, container restart, deployment, and state changes.
+
+### The user must be able to
+
+- [ ] DOD-01. Given the authorized configuration is activated, when Hermes sends IPv4 traffic through `ve-hermes`, then the host applies `10-ve-hermes.network`, retains `10.231.136.1/32`, forwards it, and masquerades it for egress.
+- [ ] DOD-02. Given Hermes's private network, when it resolves a public name and opens HTTPS, then DNS and outbound TCP succeed without an inbound forwarded port.
+
+### The user must not be able to
+
+- [ ] DOD-03. Given `ve-hermes`, when systemd-networkd matches it, then the generic `80-container-ve.network` must not win or assign its automatic subnet.
+
+### Evidence
+
+- DOD-01, DOD-03. `tests/default.nix` evaluates the `10-ve-hermes` policy and excludes the former later-sorting file.
+- DOD-02. Requires the authorized runtime checks below; evaluation alone cannot prove connectivity.
+
+### Reconciliation
+
+- DOD-01. BLOCKED: `nix flake check --no-update-lock-file` evaluated the
+  declared host policy, but this task does not authorize activation on Latitude.
+- DOD-02. BLOCKED: runtime DNS and HTTPS checks require an authorized deployment.
+- DOD-03. PASS: the evaluated regression asserts the pre-generic filename and
+  rejects the former `80-ve-hermes` declaration.
+
 ## Isolation boundary
 
 Hermes runs as an unprivileged identity inside the container. The only writable
@@ -88,25 +119,37 @@ while validating.
 ## DNS and outbound-connectivity verification
 
 The host's copied `resolv.conf` pointed the container at `127.0.0.53`, but
-the container did not run a resolver at that loopback address. Hermes now owns
-its resolver: `systemd-resolved` listens on the container-local stub and sends
-queries to its declared upstreams through the existing `ve-hermes` IPv4
-masquerade. `LinkLocalAddressing=no` prevents systemd-networkd from adding a
-second automatic IPv4 link-local address beside `10.231.136.1`. No additional
-NAT or inbound forwarding is configured.
+the container did not run a resolver at that loopback address. Hermes owns its
+resolver: `systemd-resolved` listens on the container-local stub and sends DNS
+queries to its declared upstreams through the `ve-hermes` IPv4 masquerade.
+`10-ve-hermes.network` sorts before systemd's generic
+`80-container-ve.network`, so the latter cannot assign its automatic `/28`
+subnet. `LinkLocalAddressing=no` prevents a second automatic IPv4 link-local
+address beside `10.231.136.1/32`. No additional NAT or inbound forwarding is
+configured.
 
-Keep the Discord gateway stopped while checking DNS and egress:
+Keep the Discord gateway stopped while checking DNS and egress after an
+explicitly authorized deployment:
 
 ```sh
+sudo networkctl status ve-hermes
+sudo sysctl net.ipv4.ip_forward
+sudo nixos-container run hermes -- ping -c 3 -W 2 10.231.136.1
 sudo systemctl -M hermes is-active systemd-resolved
+sudo systemd-run -M hermes --wait --pipe --collect \
+  /run/current-system/sw/bin/resolvectl query --type=A discord.com
 sudo systemd-run -M hermes --wait --pipe --collect \
   /run/current-system/sw/bin/getent ahostsv4 discord.com
 sudo systemd-run -M hermes --wait --pipe --collect \
   /run/current-system/sw/bin/curl --fail --silent --show-error --head https://example.com
 ```
 
-The final request proves outbound HTTPS without using Discord authentication.
-Do not inspect Hermes credentials or start `hermes-agent` for these checks.
+`networkctl` must name `10-ve-hermes.network`, list only `10.231.136.1/32`
+for the veth, and show IPv4 masquerading; `sysctl` must report `1`. The ping
+proves the private link. `resolvectl` and `getent` prove container DNS through
+the resolver (including its normal UDP query path); `curl` proves outbound
+HTTPS/TCP. Do not inspect Hermes credentials or start `hermes-agent` for these
+checks. Flake evaluation does not prove runtime connectivity.
 
 ## State migration and compatibility gate
 
