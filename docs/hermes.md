@@ -29,31 +29,31 @@ forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 ### Scope
 
 - User: Latitude administrator.
-- Interface: host `systemd-networkd` configuration and Hermes's private veth.
-- Included: Hermes outbound IPv4 TCP, UDP, and DNS through host-side masquerading.
-- Excluded: inbound forwarding, a second NAT implementation, container restart, deployment, and state changes.
+- Interface: host NixOS NAT policy and Hermes's private veth.
+- Included: Hermes outbound IPv4 TCP, UDP, and DNS through host-side, interface-scoped masquerading.
+- Excluded: inbound forwarding, container restart, deployment, state changes, and changes to NFS, RAID, Disko, SSH, or Tailscale.
 
 ### The user must be able to
 
-- [ ] DOD-01. Given the authorized configuration is activated, when Hermes sends IPv4 traffic through `ve-hermes`, then the host applies `10-ve-hermes.network`, retains `10.231.136.1/32`, forwards it, and masquerades it for egress.
+- [ ] DOD-01. Given the authorized configuration is activated, when Hermes sends IPv4 traffic from `10.231.136.2` through `ve-hermes` to `eno2`, then the host forwards and masquerades that traffic through `eno2`.
 - [ ] DOD-02. Given Hermes's private network, when it resolves a public name and opens HTTPS, then DNS and outbound TCP succeed without an inbound forwarded port.
 
 ### The user must not be able to
 
 - [ ] DOD-03. Given `ve-hermes`, when systemd-networkd matches it, then the generic `80-container-ve.network` must not win or assign its automatic subnet.
+- [ ] DOD-04. Given Hermes's configuration, then systemd-networkd IP masquerading and NAT port forwarding are disabled.
 
 ### Evidence
 
-- DOD-01, DOD-03. `tests/default.nix` evaluates the `10-ve-hermes` policy and excludes the former later-sorting file.
+- DOD-01, DOD-03, DOD-04. `tests/default.nix` evaluates the native interface-scoped NAT policy, the preserved veth policy, and the absence of forwarding.
 - DOD-02. Requires the authorized runtime checks below; evaluation alone cannot prove connectivity.
 
 ### Reconciliation
 
-- DOD-01. BLOCKED: `nix flake check --no-update-lock-file` evaluated the
-  declared host policy, but this task does not authorize activation on Latitude.
+- DOD-01. BLOCKED: `nix flake check --no-update-lock-file` evaluated the interface-scoped NAT declaration, but activation and live packet observation require explicit authorization on Latitude.
 - DOD-02. BLOCKED: runtime DNS and HTTPS checks require an authorized deployment.
-- DOD-03. PASS: the evaluated regression asserts the pre-generic filename and
-  rejects the former `80-ve-hermes` declaration.
+- DOD-03. PASS: the evaluated regression asserts the pre-generic filename and rejects the former `80-ve-hermes` declaration.
+- DOD-04. PASS: the evaluated regression requires native NAT with no forward ports and rejects `IPMasquerade` on `ve-hermes`.
 
 ## Isolation boundary
 
@@ -121,12 +121,17 @@ while validating.
 The host's copied `resolv.conf` pointed the container at `127.0.0.53`, but
 the container did not run a resolver at that loopback address. Hermes owns its
 resolver: `systemd-resolved` listens on the container-local stub and sends DNS
-queries to its declared upstreams through the `ve-hermes` IPv4 masquerade.
+queries to its declared upstreams through the `ve-hermes` NAT policy.
 `10-ve-hermes.network` sorts before systemd's generic
 `80-container-ve.network`, so the latter cannot assign its automatic `/28`
 subnet. `LinkLocalAddressing=no` prevents a second automatic IPv4 link-local
-address beside `10.231.136.1/32`. No additional NAT or inbound forwarding is
-configured.
+address beside `10.231.136.1/32`.
+
+`IPMasquerade=ipv4` was removed from `10-ve-hermes.network`. Networkd generated
+its `masq_saddr` set from that host-side `/32`, so the observed set contained
+only `10.231.136.1` and could not match Hermes's source address
+`10.231.136.2`. `networking.nat` now marks packets received on `ve-hermes` and
+masquerades marked packets leaving `eno2`; it has no `forwardPorts`.
 
 Keep the Discord gateway stopped while checking DNS and egress after an
 explicitly authorized deployment:
@@ -134,6 +139,10 @@ explicitly authorized deployment:
 ```sh
 sudo networkctl status ve-hermes
 sudo sysctl net.ipv4.ip_forward
+sudo iptables -w -t nat -S nixos-nat-pre
+sudo iptables -w -t nat -S nixos-nat-post
+sudo iptables -w -t filter -S nixos-filter-forward
+! sudo nft list ruleset | grep -F 'masq_saddr'
 sudo nixos-container run hermes -- ping -c 3 -W 2 10.231.136.1
 sudo systemctl -M hermes is-active systemd-resolved
 sudo systemd-run -M hermes --wait --pipe --collect \
@@ -142,14 +151,26 @@ sudo systemd-run -M hermes --wait --pipe --collect \
   /run/current-system/sw/bin/getent ahostsv4 discord.com
 sudo systemd-run -M hermes --wait --pipe --collect \
   /run/current-system/sw/bin/curl --fail --silent --show-error --head https://example.com
+
+# Observe the source address after NAT. The capture must show eno2's public
+# address as the source of the echo request, never 10.231.136.2.
+sudo timeout 10 tcpdump -lnni eno2 -c 2 'icmp and host 1.1.1.1' &
+capture_pid=$!
+sleep 1
+sudo nixos-container run hermes -- ping -c 1 -W 2 1.1.1.1
+wait "$capture_pid"
 ```
 
-`networkctl` must name `10-ve-hermes.network`, list only `10.231.136.1/32`
-for the veth, and show IPv4 masquerading; `sysctl` must report `1`. The ping
+`networkctl` must name `10-ve-hermes.network` and list only
+`10.231.136.1/32`; it must not report networkd IPv4 masquerading. The NAT
+chains must contain an input-interface mark for `ve-hermes`, a marked
+postrouting `MASQUERADE` rule limited to `eno2`, and no DNAT rule. The ping
 proves the private link. `resolvectl` and `getent` prove container DNS through
 the resolver (including its normal UDP query path); `curl` proves outbound
-HTTPS/TCP. Do not inspect Hermes credentials or start `hermes-agent` for these
-checks. Flake evaluation does not prove runtime connectivity.
+HTTPS/TCP. The packet capture proves that a packet sourced as `10.231.136.2`
+was emitted on `eno2` with the external source address. Do not inspect Hermes
+credentials or start `hermes-agent` for these checks. Flake evaluation does not
+prove runtime connectivity.
 
 ## State migration and compatibility gate
 
