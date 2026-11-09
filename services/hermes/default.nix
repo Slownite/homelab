@@ -20,18 +20,10 @@ in
     ];
     # networkd applies only the first matching .network file. The systemd
     # package's 80-container-ve.network matches ve-* and assigns a dynamic
-    # subnet, so this must sort before it. The native container service also
-    # configures this /32 while creating the veth.
+    # subnet, so this must sort before it. The native container service owns
+    # the veth's static address and peer route.
     systemd.network.networks."10-ve-hermes" = {
       matchConfig.Name = "ve-hermes";
-      address = [ "10.231.136.1/32" ];
-      routes = [
-        {
-          Destination = "10.231.136.2/32";
-          Scope = "link";
-          PreferredSource = "10.231.136.1";
-        }
-      ];
       networkConfig = {
         IPv4Forwarding = true;
         LinkLocalAddressing = "no";
