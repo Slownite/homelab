@@ -137,6 +137,15 @@ let
       && hermes.systemd.network.networks."10-ve-hermes".networkConfig.LinkLocalAddressing == "no"
     ) "Hermes must use native interface-scoped NAT without networkd masquerading or inbound forwarding")
     (ensure (
+      hermes.systemd.network.networks."10-ve-hermes".routes == [
+        {
+          Destination = "10.231.136.2/32";
+          Scope = "link";
+          PreferredSource = "10.231.136.1";
+        }
+      ]
+    ) "Hermes must persist its peer route through ve-hermes")
+    (ensure (
       hermes.containers.hermes.config.users.groups.hermes.gid == 992
       && hermes.containers.hermes.config.users.users.hermes.uid == 992
       && hermes.containers.hermes.config.services.hermes-agent.user == "hermes"
