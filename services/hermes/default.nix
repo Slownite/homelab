@@ -18,7 +18,6 @@ in
     systemd.tmpfiles.rules = [
       "d ${stateDir} 0750 992 992 - -"
     ];
-
     # networkd applies only the first matching .network file. The systemd
     # package's 80-container-ve.network matches ve-* and assigns a dynamic
     # subnet, so this must sort before it. The native container service also
@@ -28,9 +27,18 @@ in
       address = [ "10.231.136.1/32" ];
       networkConfig = {
         IPv4Forwarding = true;
-        IPMasquerade = "ipv4";
         LinkLocalAddressing = "no";
       };
+    };
+
+    # Scope egress NAT to packets received from Hermes, rather than addresses
+    # configured on the host end of the veth. This renders an nftables rule
+    # matching ve-hermes to eno2 and does not add any inbound forwarding.
+    networking.nat = {
+      enable = true;
+      externalInterface = "eno2";
+      internalInterfaces = [ "ve-hermes" ];
+      forwardPorts = [ ];
     };
 
     containers.hermes = {
