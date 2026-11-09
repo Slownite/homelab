@@ -28,7 +28,7 @@ forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 
 ### Scope
 
-- Included: Hermes outbound IPv4 TCP, UDP, and DNS through host-side, interface-scoped masquerading, with a host route to the private container address.
+- Included: Hermes outbound IPv4 TCP, UDP, and DNS through host-side, interface-scoped masquerading. The native container service owns the private veth address and peer route.
 - Excluded: inbound forwarding, deployment, state changes, and changes to NFS, RAID, Disko, SSH, or Tailscale.
 
 ### The user must be able to
@@ -37,7 +37,7 @@ forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 - [ ] DOD-02. Given Hermes's private network, when it resolves a public name and opens HTTPS, then DNS and outbound TCP succeed without an inbound forwarded port.
 
 
-- [ ] DOD-05. Given `systemd-networkd` manages `ve-hermes`, when the link is created or networkd restarts, then it installs the link-scoped `10.231.136.2/32` route with preferred source `10.231.136.1`.
+- [ ] DOD-05. Given `container@hermes` creates `ve-hermes`, when the host-side veth is configured, then it alone installs `10.231.136.1` and the peer route to `10.231.136.2`; systemd-networkd adds neither.
 ### The user must not be able to
 
 - [ ] DOD-03. Given `ve-hermes`, when systemd-networkd matches it, then the generic `80-container-ve.network` must not win or assign its automatic subnet.
@@ -45,16 +45,16 @@ forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 
 ### Evidence
 
-- DOD-01, DOD-03, DOD-04, DOD-05. `tests/default.nix` evaluates the native interface-scoped NAT policy, the preserved veth policy, the absence of forwarding, and the persistent peer route.
-- DOD-02. The authorized production validation on 2026-11-09 observed DNS and HTTPS succeed after the host peer route was installed; deployment of this declarative route still requires authorization.
+- DOD-01, DOD-03, DOD-04, DOD-05. `tests/default.nix` evaluates the native interface-scoped NAT policy, preserved veth policy, no forwarded ports, and absence of duplicate networkd address or route configuration.
+- DOD-02. Authorized production validation after deployment must observe DNS and HTTPS from the container.
 
 ### Reconciliation
 
-- DOD-01. PASS: authorized production validation observed NAT counters and outbound container traffic after the peer route was installed.
-- DOD-02. PASS: authorized production validation observed DNS resolution and an HTTP/2 200 response from Discord after the peer route was installed.
+- DOD-01. PASS: authorized production validation observed NAT counters and outbound container traffic.
+- DOD-02. PASS: authorized production validation observed DNS resolution and an HTTP/2 200 response from Discord.
 - DOD-03. PASS: the evaluated regression asserts the pre-generic filename and rejects the former `80-ve-hermes` declaration.
 - DOD-04. PASS: the evaluated regression requires native NAT with no forward ports and rejects `IPMasquerade` on `ve-hermes`.
-- DOD-05. BLOCKED: implementation and evaluation are pending; runtime persistence needs an authorized deployment.
+- DOD-05. PASS: the evaluated regression requires the native container's static addresses while rejecting address and route configuration in `10-ve-hermes.network`.
 
 ## Isolation boundary
 
@@ -126,28 +126,27 @@ queries to its declared upstreams through the `ve-hermes` NAT policy.
 `10-ve-hermes.network` sorts before systemd's generic
 `80-container-ve.network`, so the latter cannot assign its automatic `/28`
 subnet. `LinkLocalAddressing=no` prevents a second automatic IPv4 link-local
-address beside `10.231.136.1/32`.
+address beside the host address created by the native container service.
+
+The native container service owns `10.231.136.1` and the peer route to
+`10.231.136.2` while it creates `ve-hermes`. `10-ve-hermes.network` must not
+repeat either configuration: duplicate declarations race with its
+`ExecStartPost` and prevent automatic container startup after a reboot.
 
 `IPMasquerade=ipv4` was removed from `10-ve-hermes.network`. Networkd generated
-its `masq_saddr` set from that host-side `/32`, so the observed set contained
-only `10.231.136.1` and could not match Hermes's source address
-`10.231.136.2`. `networking.nat` now marks packets received on `ve-hermes` and
-masquerades marked packets leaving `eno2`; it has no `forwardPorts`.
-
-The host must also hold a link-scoped route to `10.231.136.2/32` through
-`ve-hermes`, with `10.231.136.1` as its preferred source. `10-ve-hermes.network`
-declares this route, so networkd applies it whenever the veth appears and after
-networkd restarts; it does not require a custom route service.
+its `masq_saddr` set from the host-side address, so the observed set could not
+match Hermes's source address `10.231.136.2`. `networking.nat` marks packets
+received on `ve-hermes` and masquerades marked packets leaving `eno2`; it has
+no `forwardPorts`.
 
 Keep the Discord gateway stopped while checking DNS and egress after an
 explicitly authorized deployment:
 
 ```sh
+sudo systemctl status container@hermes
+sudo journalctl -b -u container@hermes --no-pager
 sudo networkctl status ve-hermes
-sudo ip route get 10.231.136.2
-sudo systemctl restart container@hermes
-sudo ip route get 10.231.136.2
-sudo systemctl restart systemd-networkd
+sudo ip addr show dev ve-hermes
 sudo ip route get 10.231.136.2
 sudo sysctl net.ipv4.ip_forward
 sudo iptables -w -t nat -S nixos-nat-pre
@@ -173,12 +172,12 @@ sudo nixos-container run hermes -- ping -c 1 -W 2 1.1.1.1
 wait "$capture_pid"
 ```
 
-`networkctl` must name `10-ve-hermes.network` and list only
-`10.231.136.1/32`; it must not report networkd IPv4 masquerading. Each route
-lookup, including those after the container and networkd restarts, must report
-`10.231.136.2 dev ve-hermes src 10.231.136.1`. The NAT chains must contain an
-input-interface mark for `ve-hermes`, a marked postrouting `MASQUERADE` rule
-limited to `eno2`, and no DNAT rule. The ping proves the private link.
+`networkctl` must name `10-ve-hermes.network`, list the host address installed
+by the native container service, and report no networkd IPv4 masquerading. The
+route lookup must report `10.231.136.2 dev ve-hermes src 10.231.136.1`. The NAT
+chains must contain an input-interface mark for `ve-hermes`, a marked
+postrouting `MASQUERADE` rule limited to `eno2`, and no DNAT rule. The ping
+proves the private link.
 `resolvectl` and `getent` prove container DNS through the resolver (including
 its normal UDP query path); `curl` proves outbound HTTPS/TCP. The packet
 capture proves that a packet sourced as `10.231.136.2` was emitted on `eno2`
