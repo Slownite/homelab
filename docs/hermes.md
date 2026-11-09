@@ -150,7 +150,8 @@ sudo systemd-run -M hermes --wait --pipe --collect \
 sudo systemd-run -M hermes --wait --pipe --collect \
   /run/current-system/sw/bin/getent ahostsv4 discord.com
 sudo systemd-run -M hermes --wait --pipe --collect \
-  /run/current-system/sw/bin/curl --fail --silent --show-error --head https://example.com
+  /run/current-system/sw/bin/curl --resolve discord.com:443:162.159.138.232 \
+  --fail --silent --show-error --head https://discord.com
 
 # Observe the source address after NAT. The capture must show eno2's public
 # address as the source of the echo request, never 10.231.136.2.
