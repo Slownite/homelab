@@ -109,9 +109,15 @@ let
     (ensure (
       hermes.containers.hermes.bindMounts."/var/lib/homelab/hermes".hostPath == "/var/lib/homelab/hermes"
       && !hermes.containers.hermes.bindMounts."/var/lib/homelab/hermes".isReadOnly
-      && builtins.attrNames hermes.containers.hermes.bindMounts == [ "/var/lib/homelab/hermes" ]
+      && hermes.containers.hermes.bindMounts."/mnt/notes".hostPath == "/mnt/external_data/notes"
+      && !hermes.containers.hermes.bindMounts."/mnt/notes".isReadOnly
+      &&
+        builtins.attrNames hermes.containers.hermes.bindMounts == [
+          "/mnt/notes"
+          "/var/lib/homelab/hermes"
+        ]
       && hermes.containers.hermes.privateUsers == "identity"
-    ) "Hermes must retain only its writable persistent state mount")
+    ) "Hermes must receive only its writable state and notes mounts")
     (ensure (
       hermes.containers.hermes.config.nix.enable == false
       && hermes.containers.hermes.config.services.hermes-agent.container.enable == false
@@ -161,6 +167,27 @@ let
       && hermes.systemd.services."container@hermes".serviceConfig.CPUQuota == "300%"
       && hermes.systemd.services."container@hermes".serviceConfig.TasksMax == 512
     ) "Hermes container limits regressed")
+    (ensure (
+      builtins.elem "mnt-external_data.mount" hermes.systemd.services."container@hermes".requires
+      && builtins.elem "hermes-notes-acl.service" hermes.systemd.services."container@hermes".requires
+      && builtins.elem "mnt-external_data.mount" hermes.systemd.services."container@hermes".after
+      && builtins.elem "hermes-notes-acl.service" hermes.systemd.services."container@hermes".after
+      && hermes.systemd.services."container@hermes".bindsTo == [ "mnt-external_data.mount" ]
+      &&
+        hermes.systemd.services."container@hermes".unitConfig.ConditionPathIsMountPoint
+        == "/mnt/external_data"
+      &&
+        hermes.systemd.services."container@hermes".unitConfig.ConditionPathIsDirectory
+        == "/mnt/external_data/notes"
+      && hermes.systemd.services."hermes-notes-acl".requires == [ "mnt-external_data.mount" ]
+      && hermes.systemd.services."hermes-notes-acl".bindsTo == [ "mnt-external_data.mount" ]
+      &&
+        hermes.systemd.services."hermes-notes-acl".unitConfig.ConditionPathIsMountPoint
+        == "/mnt/external_data"
+      &&
+        hermes.systemd.services."hermes-notes-acl".unitConfig.ConditionPathIsDirectory
+        == "/mnt/external_data/notes"
+    ) "Hermes notes access must fail closed on the NAS mount")
     (ensure (
       hermes.containers.hermes.config.systemd.services.hermes-agent.wantedBy == [ ]
     ) "Stage A must leave the gateway stopped")
