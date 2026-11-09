@@ -1,12 +1,19 @@
 {
   config,
   lib,
+  pkgs,
+  utils,
   hermesAgent,
   ...
 }:
 let
   cfg = config.homelab.hermes;
   stateDir = "/var/lib/homelab/hermes";
+  notesPath = "/mnt/external_data/notes";
+  nasMountPoint = "/mnt/external_data";
+  nasMountUnit = "${utils.escapeSystemdPath nasMountPoint}.mount";
+  notesAclService = "hermes-notes-acl";
+  notesAclUnit = "${notesAclService}.service";
 in
 {
   options.homelab.hermes = {
@@ -18,6 +25,38 @@ in
     systemd.tmpfiles.rules = [
       "d ${stateDir} 0750 992 992 - -"
     ];
+    environment.systemPackages = [ pkgs.acl ];
+    systemd.services.${notesAclService} = {
+      description = "Grant Hermes and sam access to the NAS notes vault";
+      requires = [ nasMountUnit ];
+      after = [ nasMountUnit ];
+      bindsTo = [ nasMountUnit ];
+      unitConfig = {
+        RequiresMountsFor = nasMountPoint;
+        ConditionPathIsMountPoint = nasMountPoint;
+        ConditionPathIsDirectory = notesPath;
+      };
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStartPre = "${pkgs.coreutils}/bin/test -d ${notesPath}";
+      };
+      path = [
+        pkgs.acl
+        pkgs.findutils
+        pkgs.util-linux
+      ];
+      script = ''
+        set -euo pipefail
+
+        source="$(findmnt --noheadings --output SOURCE --target ${nasMountPoint})"
+        test "$source" = /dev/md0
+
+        setfacl --recursive --modify u:992:rwX,m::rwX ${notesPath}
+        find ${notesPath} -type d -exec setfacl --modify \
+          d:u:1000:rwx,d:u:992:rwx,d:m::rwx {} +
+      '';
+    };
     # networkd applies only the first matching .network file. The systemd
     # package's 80-container-ve.network matches ve-* and assigns a dynamic
     # subnet, so this must sort before it. The native container service owns
@@ -48,6 +87,10 @@ in
       privateUsers = "identity";
       bindMounts.${stateDir} = {
         hostPath = stateDir;
+        isReadOnly = false;
+      };
+      bindMounts."/mnt/notes" = {
+        hostPath = notesPath;
         isReadOnly = false;
       };
 
@@ -104,11 +147,28 @@ in
       };
     };
 
-    systemd.services."container@hermes".serviceConfig = {
-      MemoryHigh = "5G";
-      MemoryMax = "6G";
-      CPUQuota = "300%";
-      TasksMax = 512;
+    systemd.services."container@hermes" = {
+      requires = [
+        nasMountUnit
+        notesAclUnit
+      ];
+      after = [
+        nasMountUnit
+        notesAclUnit
+      ];
+      bindsTo = [ nasMountUnit ];
+      unitConfig = {
+        RequiresMountsFor = nasMountPoint;
+        ConditionPathIsMountPoint = nasMountPoint;
+        ConditionPathIsDirectory = notesPath;
+      };
+      serviceConfig = {
+        ExecStartPre = "${pkgs.coreutils}/bin/test -d ${notesPath}";
+        MemoryHigh = "5G";
+        MemoryMax = "6G";
+        CPUQuota = "300%";
+        TasksMax = 512;
+      };
     };
   };
 }

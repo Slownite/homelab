@@ -29,6 +29,7 @@ forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 ### Scope
 
 - Included: Hermes outbound IPv4 TCP, UDP, and DNS through host-side, interface-scoped masquerading. The native container service owns the private veth address and peer route.
+- Included: a read-write `/mnt/notes` bind mount of the existing NAS notes vault with narrowly scoped POSIX ACLs for Hermes and `sam`.
 - Excluded: inbound forwarding, deployment, state changes, and changes to NFS, RAID, Disko, SSH, or Tailscale.
 
 ### The user must be able to
@@ -38,15 +39,24 @@ forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 
 
 - [ ] DOD-05. Given `container@hermes` creates `ve-hermes`, when the host-side veth is configured, then it alone installs `10.231.136.1` and the peer route to `10.231.136.2`; systemd-networkd adds neither.
+
+- [ ] DOD-06. Given the private RAID configuration mounts `/dev/md0` at `/mnt/external_data`, when `container@hermes` starts, then the existing notes vault is mounted read-write at `/mnt/notes` and Hermes can create, edit, rename, and delete files there.
+- [ ] DOD-07. Given existing vault data and files newly created by Hermes, when `sam` accesses the vault, then `sam` retains normal read-write access.
 ### The user must not be able to
 
 - [ ] DOD-03. Given `ve-hermes`, when systemd-networkd matches it, then the generic `80-container-ve.network` must not win or assign its automatic subnet.
 - [ ] DOD-04. Given Hermes's configuration, then systemd-networkd IP masquerading and NAT port forwarding are disabled.
 
+- [ ] DOD-08. Given `/mnt/external_data` is absent, mounted from anything other than `/dev/md0`, or lacks `notes`, when `container@hermes` starts, then it does not start and no underlying host directory is exposed.
+- [ ] DOD-09. Given Hermes starts with the notes mount, when it tries to access another NAS path, then that path is absent from the container.
+- [ ] DOD-10. Given the notes mount is configured, Hermes retains its existing private veth, NAT, resolver, no-forwarded-port policy, and cgroup limits.
+
 ### Evidence
 
 - DOD-01, DOD-03, DOD-04, DOD-05. `tests/default.nix` evaluates the native interface-scoped NAT policy, preserved veth policy, no forwarded ports, and absence of duplicate networkd address or route configuration.
 - DOD-02. Authorized production validation after deployment must observe DNS and HTTPS from the container.
+- DOD-06, DOD-07, DOD-09, DOD-10. Authorized production verification must use the isolated temporary-directory procedure in [NAS notes access](#nas-notes-access).
+- DOD-08. `tests/default.nix` evaluates the mount dependency, mountpoint guards, and notes-path guards; authorized production verification must exercise the unavailable-mount scenario without creating a replacement directory.
 
 ### Reconciliation
 
@@ -55,19 +65,108 @@ forwarded ports. `container@hermes` starts at boot with `MemoryHigh=5G`,
 - DOD-03. PASS: the evaluated regression asserts the pre-generic filename and rejects the former `80-ve-hermes` declaration.
 - DOD-04. PASS: the evaluated regression requires native NAT with no forward ports and rejects `IPMasquerade` on `ve-hermes`.
 - DOD-05. PASS: the evaluated regression requires the native container's static addresses while rejecting address and route configuration in `10-ve-hermes.network`.
+- DOD-06 through DOD-10. BLOCKED: require an explicitly authorized deployment and production-only NAS access verification.
 
 ## Isolation boundary
 
 Hermes runs as an unprivileged identity inside the container. The only writable
-host bind mount is its state directory. There are no NFS, host-root, display,
-SSH, Docker/Podman, or container-management mounts or devices. The standard
-NixOS-container Nix daemon bind is hidden by a private tmpfs; the container
-uses the upstream sealed package and has `nix.enable = false`.
+host bind mounts are its state directory and the dedicated NAS notes vault.
+There are no NFS, host-root, display, SSH, Docker/Podman, or
+container-management mounts or devices. The standard NixOS-container Nix daemon
+bind is hidden by a private tmpfs; the container uses the upstream sealed
+package and has `nix.enable = false`.
 
 A native container shares the host kernel. Treat prompts, Discord messages,
 MCP input, and skills as untrusted. This is process/filesystem isolation, not a
 VM boundary. Do not add host paths, devices, sockets, `enableTun`, or OCI
 container mode without a threat-model review.
+
+## NAS notes access
+
+`privateUsers = "identity"` means systemd-nspawn does not remap Hermes's
+numeric identity. The evaluated container service user and group are both
+`992`; the host ACL therefore grants UID `992`, not a guessed login name.
+The private Latitude configuration remains responsible for enabling the
+audited `/mnt/external_data` RAID mount. Do not add a second filesystem
+declaration for it.
+
+The public Hermes module mounts only `/mnt/external_data/notes` at
+`/mnt/notes`. `hermes-notes-acl.service` runs before `container@hermes`, is
+bound to `mnt-external_data.mount`, refuses any source other than `/dev/md0`,
+and requires both the NAS mountpoint and existing notes directory. Neither
+unit creates the NAS mountpoint or vault path.
+
+The service uses `setfacl` recursively only below the notes vault. It grants
+Hermes `rwX` on existing entries and installs default ACLs on every existing
+directory for UID `992` and UID `1000` (`sam`). The default ACL mask permits
+both identities to inherit the requested read-write access while preserving
+normal execute semantics for directories. Re-running it repairs drift without
+changing ownership, using `chmod 777`, or touching any other NAS directory.
+`acl` is declared in the host system packages for inspection and provisioning.
+
+After an explicitly authorized deployment, inspect the identity and namespace
+assumption before allowing Hermes to use the vault:
+
+```sh
+sudo nixos-container run hermes -- id hermes
+sudo systemctl cat container@hermes
+sudo getfacl --absolute-names /mnt/external_data/notes
+sudo findmnt --noheadings --output SOURCE,TARGET,FSTYPE,OPTIONS --target /mnt/external_data
+```
+
+The first command must report UID/GID `992`; the generated nspawn invocation
+must retain `--private-users=identity`; and the NAS mount must report
+`/dev/md0`, ext4, and `/mnt/external_data`. Stop if any differs.
+
+Use a uniquely named test directory. The procedure neither reads note content
+nor modifies any existing vault entry:
+
+```sh
+set -euo pipefail
+test_dir="/mnt/notes/.hermes-access-test-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+host_test_dir="/mnt/external_data/notes/${test_dir#/mnt/notes/}"
+cleanup() {
+  sudo nixos-container run hermes -- sudo -u hermes rm -rf -- "$test_dir"
+}
+trap cleanup EXIT
+
+sudo nixos-container run hermes -- findmnt --noheadings --output TARGET,OPTIONS --target /mnt/notes
+sudo nixos-container run hermes -- sudo -u hermes sh -eu -c '
+  test -r /mnt/notes/.obsidian
+  test -n "$(find /mnt/notes -type f -readable -print -quit)"
+  mkdir -- "$1"
+  printf "%s\n" hermes-created >"$1/note.md"
+  printf "%s\n" hermes-edited >>"$1/note.md"
+  mv -- "$1/note.md" "$1/renamed.md"
+' sh "$test_dir"
+sudo -u sam sh -eu -c '
+  test -r "$1/renamed.md"
+  test -w "$1/renamed.md"
+  printf "%s\n" sam-access >>"$1/renamed.md"
+' sh "$host_test_dir"
+sudo nixos-container run hermes -- sudo -u hermes test -r "$test_dir/renamed.md"
+sudo nixos-container run hermes -- test ! -e /mnt/external_data/amelie
+sudo nixos-container run hermes -- sudo -u hermes rm -rf -- "$test_dir"
+trap - EXIT
+test ! -e "$host_test_dir"
+sudo systemctl show container@hermes --property=Requires,After,BindsTo
+sudo nixos-container run hermes -- ip route get 1.1.1.1
+sudo systemd-run -M hermes --wait --pipe --collect \
+  /run/current-system/sw/bin/getent ahostsv4 discord.com
+```
+
+The first `findmnt` result must include `/mnt/notes` and `rw`. The test
+creates, edits, renames, verifies `sam` access to, and deletes only its own
+temporary directory. The absence check proves that no parent NAS mount is
+visible. The final route and DNS checks must retain the established private
+veth egress behavior.
+
+To verify fail-closed behavior during a separately authorized maintenance
+window, stop the container, make the NAS mount unavailable using the approved
+storage procedure, then run `sudo systemctl start container@hermes`. It must
+fail; `systemctl status container@hermes hermes-notes-acl` must identify the
+mount or source guard. Do not create `/mnt/external_data` or `notes` to make
+this test pass. Restore the approved NAS mount before any subsequent start.
 
 ## Stage A — infrastructure only
 
