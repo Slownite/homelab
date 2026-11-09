@@ -130,6 +130,8 @@ let
       && hermes.networking.nat.externalInterface == "eno2"
       && hermes.networking.nat.internalInterfaces == [ "ve-hermes" ]
       && hermes.networking.nat.forwardPorts == [ ]
+      && hermes.systemd.network.networks."10-ve-hermes".address == [ "10.231.136.1/32" ]
+      && !(hermes.systemd.network.networks ? "80-ve-hermes")
       && !(hermes.systemd.network.networks."10-ve-hermes".networkConfig ? IPMasquerade)
       && hermes.systemd.network.networks."10-ve-hermes".networkConfig.IPv4Forwarding
       && hermes.systemd.network.networks."10-ve-hermes".networkConfig.LinkLocalAddressing == "no"
