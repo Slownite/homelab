@@ -202,10 +202,15 @@ let
       c.services.home-assistant.enable
       && c.services.home-assistant.configDir == "/var/lib/home-assistant"
       && c.services.home-assistant.config == null
-      && builtins.elem "zha" c.services.home-assistant.extraComponents
+      && builtins.all (component: builtins.elem component c.services.home-assistant.extraComponents) [
+        "default_config"
+        "met"
+        "esphome"
+        "zha"
+      ]
       && !c.services.home-assistant.openFirewall
       && !c.services.home-assistant.openFirewallForComponents
-    ) "Home Assistant must use persistent UI-managed state with ZHA")
+    ) "Home Assistant must package normal onboarding components and ZHA")
     (ensure (
       c.systemd.services.home-assistant.serviceConfig.User == "hass"
       && c.systemd.services.home-assistant.serviceConfig.Group == "hass"
@@ -228,6 +233,16 @@ in
     find ${source} -name '*.nix' -type f -print0 | xargs -0 nixfmt --check
     touch $out
   '';
+  home-assistant-imports =
+    pkgs.runCommand "home-assistant-imports"
+      {
+        nativeBuildInputs = [ c.services.home-assistant.package.python3Packages.python ];
+        PYTHONPATH = c.services.home-assistant.package.pythonPath;
+      }
+      ''
+        python -c 'import av; import go2rtc_client'
+        touch $out
+      '';
   module-evaluation =
     assert builtins.deepSeq tests true;
     pkgs.writeText "module-evaluation.json" report;
