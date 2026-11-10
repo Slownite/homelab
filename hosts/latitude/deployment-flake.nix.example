@@ -1,0 +1,18 @@
+{
+  description = "Private Latitude deployment; never publish this directory";
+  inputs.homelab.url = "github:OWNER/homelab";
+  inputs.nixpkgs.follows = "homelab/nixpkgs";
+  outputs = { self, homelab, nixpkgs, ... }: {
+    nixosConfigurations.latitude-vm = self.nixosConfigurations.latitude.extendModules {
+      modules = [ homelab.nixosModules.installationVM ];
+    };
+    nixosConfigurations.latitude = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        homelab.nixosModules.latitude
+        (if builtins.pathExists ./latitude.nix then ./latitude.nix
+         else throw "Missing private latitude.nix: copy the inspected hardware profile beside this flake")
+      ];
+    };
+  };
+}

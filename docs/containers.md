@@ -16,4 +16,13 @@ Native container root state normally persists under `/var/lib/nixos-containers/e
 
 The host container unit sets MemoryMax=256M, CPUQuota=25% and TasksMax=128. These are host cgroup limits, not disk quotas or a guarantee against all kernel resource exhaustion. Inspect effective cgroups and runtime behavior in later tests. The example is evaluated in CI but has not been run.
 
+## Hermes
+
+`homelab.hermes` is a production-shaped native container rather than an
+example. It has a private veth with outbound NAT, no forwarded ports, a single
+writable application-state bind mount, and host cgroup limits sized for Hermes.
+It disables the gateway in Stage A and requires explicit Stage B activation
+after state restoration. Its Nix daemon socket is hidden rather than exposed to
+the agent. See [Hermes migration and operations](./hermes.md).
+
 systemd-nspawn shares the host kernel and does not provide VM-level isolation. Command-executing agents need a threat-model review; use stronger isolation when untrusted workloads require it.

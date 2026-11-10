@@ -15,6 +15,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.disko.follows = "disko";
     };
+    hermes-agent.url = "github:NousResearch/hermes-agent";
   };
   outputs =
     inputs@{
@@ -28,6 +29,7 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       common = [
+        ({ ... }: { _module.args.hermesAgent = inputs.hermes-agent; })
         disko.nixosModules.disko
         sops-nix.nixosModules.sops
         ./hosts/latitude
@@ -39,41 +41,15 @@
       containerValidation = validation.extendModules {
         modules = [ { homelab.exampleContainer.enable = true; } ];
       };
+      hermesValidation = validation.extendModules {
+        modules = [ { homelab.hermes.enable = true; } ];
+      };
     in
     {
-      nixosConfigurations.latitude =
-        if !(builtins.pathExists ./local/latitude.nix) then
-          {
-            # Only a failing sentinel derivation is exposed until private inventory exists.
-            inherit pkgs;
-            config.system.build.toplevel = pkgs.runCommand "latitude-deployment-blocked" { } ''
-              echo "Deployment blocked: provide inspected local/latitude.nix via path flake" >&2
-              exit 1
-            '';
-          }
-        else
-          nixpkgs.lib.nixosSystem {
-            inherit system;
-            modules = common ++ [
-              ./local/latitude.nix
-              ({ config, ... }: {
-                assertions = [
-                  {
-                    assertion = config.homelab.install.internalDisk != null;
-                    message = "Internal disk inspection required";
-                  }
-                  {
-                    assertion = config.homelab.adminKeys != [ ];
-                    message = "Verified administrator keys required";
-                  }
-                  {
-                    assertion = config.systemd.network.networks != { };
-                    message = "Verified network configuration required";
-                  }
-                ];
-              })
-            ];
-          };
+      nixosModules.installationVM = ./tests/installation-vm.nix;
+      nixosModules.latitude = {
+        imports = common ++ [ ./hosts/latitude/prerequisites.nix ];
+      };
       formatter.${system} = pkgs.writeShellApplication {
         name = "format-homelab";
         runtimeInputs = [
@@ -90,10 +66,16 @@
       };
       packages.${system} = {
         inherit (pkgs) nixos-rebuild;
+        hermes-agent = inputs.hermes-agent.packages.${system}.default;
         nixos-anywhere = inputs.nixos-anywhere.packages.${system}.default;
       };
       checks.${system} = import ./tests {
-        inherit pkgs validation containerValidation;
+        inherit
+          pkgs
+          validation
+          containerValidation
+          hermesValidation
+          ;
         source = self;
       };
       devShells.${system}.default = pkgs.mkShell {
