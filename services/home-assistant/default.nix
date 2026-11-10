@@ -24,9 +24,12 @@ in
     openFirewallForComponents = false;
   };
 
-  # ZHA lets the upstream NixOS module derive its serial-device policy while
-  # retaining DevicePolicy=closed. Do not override those derived settings.
-  networking.firewall.extraInputRules = ''
-    iifname "eno2" ip saddr 192.168.8.0/24 tcp dport 8123 accept
+  # Keep the Home Assistant frontend scoped to the wired LAN; this is emitted
+  # with NixOS's iptables firewall lifecycle rather than opening port 8123 globally.
+  networking.firewall.extraCommands = ''
+    iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept
+  '';
+  networking.firewall.extraStopCommands = ''
+    iptables -D nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept 2>/dev/null || true
   '';
 }

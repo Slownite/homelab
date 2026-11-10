@@ -6,8 +6,8 @@
 
 - User: Latitude LAN administrator.
 - Interfaces: native NixOS `services.home-assistant`, Home Assistant web UI, ZHA onboarding flow, the Home Assistant Python environment, and the system firewall.
-- Included: native Home Assistant Core, dependencies for the normal onboarding component set and ZHA, persistent local state, narrowly scoped serial access, LAN-only frontend access, and manual deployment/verification.
-- Excluded: deployment or connection to Latitude, dongle firmware changes, public/remote exposure, Hermes/NAS/NFS/NAT changes, non-SQLite database configuration, and declarative Home Assistant UI configuration.
+- Included: native Home Assistant Core, dependencies for the normal onboarding component set and ZHA, persistent local state, narrowly scoped serial access, LAN-only frontend access, disabling local Bluetooth adapter scanners through Home Assistant's UI-managed state, and manual deployment/verification.
+- Excluded: deployment or connection to Latitude, dongle firmware changes, public/remote exposure, Hermes/NAS/NFS/NAT changes, non-SQLite database configuration, and declarative Home Assistant UI configuration. `default_config` itself remains enabled; it requires the Bluetooth component, so it can still discover adapters.
 
 ### The user must be able to
 
@@ -22,6 +22,7 @@
 - [ ] DOD-06. Given a non-LAN source attempts TCP port 8123, when the packet reaches the Latitude firewall, then it is not accepted; no Home Assistant component ports are opened implicitly.
 - [ ] DOD-07. Given Home Assistant is enabled, when it accesses devices, then systemd retains a closed device policy except for the NixOS module's serial-device allowance required by ZHA; unrelated device permissions are unchanged.
 - [ ] DOD-08. Given this module is evaluated, then Hermes, NAT, NFS, SSH, and NAS configuration are unchanged.
+- [ ] DOD-10. Given a local Bluetooth adapter has an existing Home Assistant config entry, when the administrator disables that entry in the UI, then Home Assistant does not start its local Bluetooth scanner; the entry and all unrelated UI-managed state remain present.
 
 ### Persistence and recovery
 
@@ -31,12 +32,12 @@
 
 - DOD-01, DOD-03, DOD-06, DOD-07, DOD-08, DOD-09. Focused NixOS module-evaluation check.
 - DOD-04. Focused Nix build imports the generated dependency packages from the configured Home Assistant Python path.
-- DOD-02, DOD-05. Authorized post-deployment service, socket, firewall, and restart verification steps below.
+- DOD-02, DOD-05, DOD-10. Authorized post-deployment service, socket, firewall, and Home Assistant UI verification steps below.
 
 ## Reconciliation
 
 - DOD-04, DOD-07, DOD-08: PASS — `nix flake check --no-update-lock-file` runs the import and focused module-evaluation assertions.
-- DOD-01, DOD-02, DOD-03, DOD-05, DOD-06, DOD-09: BLOCKED — require an authorized Latitude deployment and LAN/on-host verification.
+- DOD-01, DOD-02, DOD-03, DOD-05, DOD-06, DOD-09, DOD-10: BLOCKED — require an authorized Latitude deployment and LAN/on-host verification.
 
 
 ## Deployment
@@ -63,6 +64,24 @@ From a LAN client, open `http://192.168.8.100:8123` and complete onboarding. In 
 
 Do not choose a radio type from the USB `cp210x` bridge alone. Let ZHA probe it, or use its diagnostic/error output to confirm the appropriate radio type for the installed dongle. Do not flash firmware.
 
+## Disable local Bluetooth scanners
+
+`default_config` requires Home Assistant's Bluetooth component. Do not remove
+`default_config`, change `configuration.yaml`, hand-edit `.storage`, or remove
+Bluetooth capabilities: none of those disables the integration safely.
+
+In **Settings → Devices & services → Bluetooth**, inspect the existing local
+adapter entries. Disable every adapter entry that Home Assistant must not scan;
+for an adapter that has never been configured, select **Ignore** in its
+discovery flow. This preserves the existing entry and prevents the scanner from
+starting. It does not affect ZHA's serial coordinator.
+
+After any requested Home Assistant restart, confirm that every local Bluetooth
+adapter is disabled or ignored and that no local scanner appears in **Settings
+→ Connectivity → Bluetooth**. See
+[Bluetooth scanning with `default_config`](home-assistant-bluetooth-research.md)
+for the pinned-source rationale and the exact state constraints.
+
 On the authorized target, verify the service, its serial-device policy, and persistent local state without restarting it:
 
 ```sh
@@ -73,6 +92,15 @@ sudo runuser -u hass -g hass -G dialout -- test -rw /dev/serial/by-id/usb-Itead_
 sudo journalctl -u home-assistant.service -b --no-pager | grep -E 'ModuleNotFoundError|Setup failed|Could not setup dependencies' && exit 1 || true
 sudo ls -ld /var/lib/home-assistant
 sudo ls -l /var/lib/home-assistant/home-assistant_v2.db
+```
+
+Verify the declarative firewall rules after activation or a firewall restart:
+
+```sh
+sudo iptables -C nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept
+sudo iptables -C nixos-fw -p tcp --dport 2222 -j nixos-fw-accept
+sudo iptables -C nixos-fw -s 192.168.8.0/24 -p tcp --dport 2049 -j nixos-fw-accept
+sudo iptables -S nixos-fw
 ```
 
 Run a restart/recovery test only under separate authorization; it is not part of deployment verification.
