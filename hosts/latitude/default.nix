@@ -5,6 +5,7 @@
     ../../modules/storage
     ../../modules/security
     ../../modules/containers
+    ../../services/caddy
     ../../services/hermes
     ../../services/home-assistant
     ../../services/pr-agent

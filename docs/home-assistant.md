@@ -58,6 +58,12 @@ nix run .#nixos-rebuild -- test --flake "path:$PWD/local#latitude" --target-host
 
 From a LAN client, open `http://192.168.8.100:8123` and complete onboarding. In **Settings → Devices & services → Add integration → Zigbee Home Automation**, select the stable path:
 
+For HTTPS access through Caddy, merge the loopback-only `http.trusted_proxies`
+configuration into the existing `configuration.yaml` before restarting Home
+Assistant. Do not replace the runtime-managed file or its database. See
+[Caddy reverse proxy](caddy.md) for the exact YAML, CA trust, and end-to-end
+verification.
+
 ```text
 /dev/serial/by-id/usb-Itead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_V2_167f1800b812ef11801a75b8bf9df066-if00-port0
 ```

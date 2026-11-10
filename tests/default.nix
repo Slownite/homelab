@@ -230,6 +230,23 @@ let
       && contains "iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" c.networking.firewall.extraCommands
       && contains "iptables -D nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" c.networking.firewall.extraStopCommands
     ) "Home Assistant must allow TCP 8123 only from the wired LAN")
+    (ensure (
+      c.services.caddy.enable
+      && c.services.caddy.dataDir == "/var/lib/caddy"
+      && !c.services.caddy.openFirewall
+      && c.services.caddy.virtualHosts."home.home.arpa".listenAddresses == [ "192.168.8.100" ]
+      && contains "tls internal" c.services.caddy.virtualHosts."home.home.arpa".extraConfig
+      &&
+        contains "reverse_proxy 127.0.0.1:8123"
+          c.services.caddy.virtualHosts."home.home.arpa".extraConfig
+      && contains "admin 127.0.0.1:2019" c.services.caddy.globalConfig
+      && contains "auto_https disable_redirects" c.services.caddy.globalConfig
+      && c.systemd.services.caddy.serviceConfig.StateDirectory == [ "caddy" ]
+      && c.systemd.services.caddy.wantedBy == [ "multi-user.target" ]
+      && contains "iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 443 -j nixos-fw-accept" c.networking.firewall.extraCommands
+      && contains "iptables -D nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 443 -j nixos-fw-accept" c.networking.firewall.extraStopCommands
+      && !contains "--dport 80" c.networking.firewall.extraCommands
+    ) "Caddy must proxy Home Assistant with persistent internal PKI and LAN-only HTTPS")
   ];
 in
 {
@@ -246,6 +263,14 @@ in
       ''
         python -c 'import av; import go2rtc_client'
         touch $out
+      '';
+  caddy-config =
+    pkgs.runCommand "caddy-config"
+      {
+        nativeBuildInputs = [ c.services.caddy.package ];
+      }
+      ''
+        caddy adapt --config ${c.services.caddy.configFile} --adapter caddyfile > $out
       '';
   module-evaluation =
     assert builtins.deepSeq tests true;
