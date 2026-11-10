@@ -198,6 +198,29 @@ let
         hermesActivation.containers.hermes.config.systemd.services.hermes-agent.unitConfig.ConditionPathExists
         == "/var/lib/homelab/hermes/.gateway-enabled"
     ) "Stage B must require explicit activation after restoration")
+    (ensure (
+      c.services.home-assistant.enable
+      && c.services.home-assistant.configDir == "/var/lib/home-assistant"
+      && c.services.home-assistant.config == null
+      && builtins.elem "zha" c.services.home-assistant.extraComponents
+      && !c.services.home-assistant.openFirewall
+      && !c.services.home-assistant.openFirewallForComponents
+    ) "Home Assistant must use persistent UI-managed state with ZHA")
+    (ensure (
+      c.systemd.services.home-assistant.serviceConfig.User == "hass"
+      && c.systemd.services.home-assistant.serviceConfig.Group == "hass"
+      && c.systemd.services.home-assistant.serviceConfig.Restart == "on-failure"
+      && c.systemd.services.home-assistant.serviceConfig.DevicePolicy == "closed"
+      && builtins.elem "char-ttyUSB rw" c.systemd.services.home-assistant.serviceConfig.DeviceAllow
+      && builtins.elem "dialout" c.systemd.services.home-assistant.serviceConfig.SupplementaryGroups
+      && c.systemd.targets.home-assistant.wantedBy == [ "multi-user.target" ]
+    ) "ZHA must retain the hardened native serial-device service policy")
+    (ensure (
+      c.networking.firewall.allowedTCPPorts == c.services.openssh.ports
+      &&
+        c.networking.firewall.extraInputRules
+        == "iifname \"eno2\" ip saddr 192.168.8.0/24 tcp dport 8123 accept\n"
+    ) "Home Assistant must allow TCP 8123 only from the wired LAN")
   ];
 in
 {

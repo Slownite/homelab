@@ -6,6 +6,7 @@
     ../../modules/security
     ../../modules/containers
     ../../services/hermes
+    ../../services/home-assistant
     ../../services/pr-agent
     ./hardware.nix
     ./disko.nix
