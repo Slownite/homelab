@@ -13,7 +13,7 @@
 
 - [ ] DOD-01. Given Latitude starts, when systemd reaches `multi-user.target`, then `caddy.service` is enabled and starts with the configured virtual host for `home.home.arpa`.
 - [ ] DOD-02. Given a LAN client trusts Caddy's root CA and resolves `home.home.arpa` to Latitude, when it requests `https://home.home.arpa`, then Caddy presents an internally issued certificate and proxies the request to Home Assistant at `127.0.0.1:8123`.
-- [ ] DOD-03. Given Home Assistant's runtime-managed configuration contains the documented `http` integration, when Caddy proxies HTTP and WebSocket requests, then Home Assistant accepts the loopback reverse proxy and its WebSocket endpoint upgrades successfully.
+- [ ] DOD-03. Given Home Assistant's runtime-managed `configuration.yaml` contains the documented `http` integration that trusts only `127.0.0.1`, when Caddy proxies HTTP and WebSocket requests, then Home Assistant accepts that loopback reverse proxy and its WebSocket endpoint upgrades successfully.
 - [ ] DOD-04. Given Caddy has generated its local CA, when Caddy or Latitude restarts, then the root certificate and private signing key remain in persistent Caddy state and the existing root certificate is retained.
 - [ ] DOD-05. Given an administrator needs to trust clients, when they follow the documented retrieval instructions, then they obtain only Caddy's public root certificate and can install it on Ubuntu and Firefox.
 
@@ -27,6 +27,7 @@
 ### Persistence and recovery
 
 - [ ] DOD-10. Caddy's `$HOME/.local/share/caddy`, including `pki/authorities/local`, is backed by the persistent `/var/lib/caddy` service state; the root key is never copied into the Nix store or documentation.
+- [ ] DOD-11. Given the administrator has merged the documented `http` integration into the existing `/var/lib/home-assistant/configuration.yaml`, when Home Assistant is rebuilt or Latitude reboots, then the file and its loopback-only proxy trust remain present.
 
 ### Evidence
 
@@ -35,17 +36,27 @@
 
 ## Deployment
 
-Do not deploy from the workstation without separate authorization. First add the `http` integration below to the existing runtime-managed `/var/lib/home-assistant/configuration.yaml`; do not replace that file or the SQLite database. Then follow [deployment.md](deployment.md).
+Do not deploy from the workstation without separate authorization. Home Assistant's
+NixOS module intentionally sets `services.home-assistant.config = null`, so
+`/var/lib/home-assistant/configuration.yaml` remains runtime-managed persistent
+state. On the authorized target, edit that existing file in place; do not replace
+it or the SQLite database.
+
+Merge this into its existing top-level `http:` mapping, or add this one top-level
+mapping only when it has none:
 
 ```yaml
 http:
   use_x_forwarded_for: true
   trusted_proxies:
     - 127.0.0.1
-    - ::1
 ```
 
-The Caddy upstream is `127.0.0.1:8123`, so only IPv4 loopback needs trust today. `::1` is retained only for an intentional future loopback IPv6 upstream; no LAN address or subnet is trusted. Merge this top-level key with any existing `http:` configuration rather than adding a duplicate key. Check the Home Assistant configuration before restarting it:
+Caddy's only upstream is `127.0.0.1:8123`; `127.0.0.1` is therefore the sole
+trusted proxy. Do not add `::1`, a LAN address, or a subnet. Do not create a
+second top-level `http:` key.
+
+Check the merged configuration before restarting Home Assistant:
 
 ```sh
 sudo -u hass /run/current-system/sw/bin/hass --config /var/lib/home-assistant --script check_config
@@ -127,4 +138,4 @@ sudo ss -ltnp
 ## Reconciliation
 
 - DOD-01, DOD-06–DOD-10: PASS — focused NixOS evaluation assertions and `nix flake check --no-update-lock-file`.
-- DOD-02–DOD-05: BLOCKED — require an authorized Latitude deployment plus LAN/on-host verification.
+- DOD-02–DOD-05, DOD-11: BLOCKED — require an authorized Latitude deployment plus LAN/on-host verification.
