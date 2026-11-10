@@ -23,6 +23,10 @@
     };
   };
 
+  # The persistent data directory contains the internal CA signing key.
+  # Keep it private to the Caddy service account and root.
+  systemd.services.caddy.serviceConfig.StateDirectoryMode = "0700";
+
   # Caddy's automatic WebSocket proxy support needs no separate directive.
   # Keep HTTPS scoped to the wired LAN instead of opening it globally.
   networking.firewall.extraCommands = ''

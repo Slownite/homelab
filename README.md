@@ -25,7 +25,7 @@ CI separately evaluates non-deployable module fixtures, including the opt-in con
 
 Implemented: stable locked flake, core system modules, SSH/firewall, conditional internal-disk UEFI/ext4 layout, sops integration, inactive storage/NFS/Restic/Tailscale scaffolds, offline example container, staged native Hermes container integration, native Home Assistant Core with local-only ZHA support, native Caddy internal-CA HTTPS reverse proxy, local checks and CI.
 
-Home Assistant is UI-managed at `/var/lib/home-assistant`, with its frontend restricted to the wired `192.168.8.0/24` LAN. Caddy exposes it at `https://home.home.arpa` through the same LAN-only boundary; direct port 8123 remains available temporarily. See [Home Assistant](docs/home-assistant.md) for onboarding and ZHA, and [Caddy](docs/caddy.md) for CA trust, deployment, and runtime verification.
+Home Assistant is UI-managed at `/var/lib/home-assistant`. Caddy is its sole LAN entry point at `https://home.home.arpa`, restricted to the wired `192.168.8.0/24` LAN; TCP 8123 is not exposed through the firewall. See [Home Assistant](docs/home-assistant.md) for onboarding, ZHA, and state backup, and [Caddy](docs/caddy.md) for CA trust, backup, deployment, and runtime verification.
 
 Prepared privately after audit: hardware settings and existing RAID assembly/mount. Planned: post-install storage verification and NFS activation, enrolled Tailscale, tested backups, Hermes state migration and activation, monitoring, and verified PR-Agent packaging. No backups or services have been deployed.
 

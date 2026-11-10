@@ -6,20 +6,20 @@
 
 - User: Latitude LAN administrator.
 - Interfaces: native NixOS `services.home-assistant`, Home Assistant web UI, ZHA onboarding flow, the Home Assistant Python environment, and the system firewall.
-- Included: native Home Assistant Core, dependencies for the normal onboarding component set and ZHA, persistent local state, narrowly scoped serial access, LAN-only frontend access, disabling local Bluetooth adapter scanners through Home Assistant's UI-managed state, and manual deployment/verification.
+- Included: native Home Assistant Core, dependencies for the normal onboarding component set and ZHA, persistent local state, narrowly scoped serial access, Caddy-mediated LAN frontend access, disabling local Bluetooth adapter scanners through Home Assistant's UI-managed state, and manual deployment/verification.
 - Excluded: deployment or connection to Latitude, dongle firmware changes, public/remote exposure, Hermes/NAS/NFS/NAT changes, non-SQLite database configuration, and declarative Home Assistant UI configuration. `default_config` itself remains enabled; it requires the Bluetooth component, so it can still discover adapters.
 
 ### The user must be able to
 
 - [ ] DOD-01. Given the deployed Latitude configuration, when systemd reaches `multi-user.target`, then native `home-assistant.service` starts as the dedicated `hass` user and restarts after a failure.
-- [ ] DOD-02. Given Home Assistant is running, when a LAN client opens `http://192.168.8.100:8123`, then it reaches the initial Home Assistant onboarding UI.
+- [ ] DOD-02. Given Home Assistant is running and the client trusts Caddy's local CA, when a LAN client opens `https://home.home.arpa`, then it reaches the Home Assistant UI through Caddy.
 - [ ] DOD-03. Given onboarding is complete, when the user configures ZHA in the Home Assistant UI using the Sonoff stable serial path, then the packaged ZHA integration and its serial access prerequisites are available; the user verifies the radio type in that flow.
 - [ ] DOD-04. Given the Home Assistant service environment, when `default_config` loads `dhcp`, `ssdp`, `stream`, and `go2rtc`, then their generated component dependencies, including `av` and `go2rtc_client`, import successfully.
 - [ ] DOD-05. Given Home Assistant has UI-managed configuration and SQLite state, when the system is rebuilt or Home Assistant restarts, then that state remains in `/var/lib/home-assistant` and is not replaced by a Nix-store `configuration.yaml`.
 
 ### The user must not be able to
 
-- [ ] DOD-06. Given a non-LAN source attempts TCP port 8123, when the packet reaches the Latitude firewall, then it is not accepted; no Home Assistant component ports are opened implicitly.
+- [ ] DOD-06. Given a LAN or non-LAN source attempts TCP port 8123, when the packet reaches the Latitude firewall, then it is not accepted; no Home Assistant component ports are opened implicitly.
 - [ ] DOD-07. Given Home Assistant is enabled, when it accesses devices, then systemd retains a closed device policy except for the NixOS module's serial-device allowance required by ZHA; unrelated device permissions are unchanged.
 - [ ] DOD-08. Given this module is evaluated, then Hermes, NAT, NFS, SSH, and NAS configuration are unchanged.
 - [ ] DOD-10. Given a local Bluetooth adapter has an existing Home Assistant config entry, when the administrator disables that entry in the UI, then Home Assistant does not start its local Bluetooth scanner; the entry and all unrelated UI-managed state remain present.
@@ -56,7 +56,7 @@ nix run .#nixos-rebuild -- test --flake "path:$PWD/local#latitude" --target-host
 
 ## Post-deployment verification
 
-From a LAN client, open `http://192.168.8.100:8123` and complete onboarding. In **Settings → Devices & services → Add integration → Zigbee Home Automation**, select the stable path:
+From a LAN client that trusts Caddy's root CA, open `https://home.home.arpa` and complete onboarding. In **Settings → Devices & services → Add integration → Zigbee Home Automation**, select the stable path:
 
 For HTTPS access through Caddy, edit the existing runtime-managed
 `configuration.yaml` in place to merge the loopback-only `http` integration
@@ -64,6 +64,18 @@ before restarting Home Assistant. Do not replace that file or its database. The
 integration trusts only Caddy's actual upstream address, `127.0.0.1`; it does
 not trust `::1`, the LAN, or any subnet. See [Caddy reverse proxy](caddy.md) for
 the exact YAML, configuration check, CA trust, and end-to-end verification.
+
+Before an edit, save a root-only copy outside the Home Assistant state directory.
+There must be one top-level `http:` mapping: merge this into it rather than
+appending a second key. The supplied configuration already has this setting, so
+do not rewrite it during normal deployments.
+
+```sh
+sudo install -m 0600 -o root -g root \
+  /var/lib/home-assistant/configuration.yaml \
+  /root/home-assistant-configuration.yaml.pre-edit
+sudo -u hass /run/current-system/sw/bin/hass --config /var/lib/home-assistant --script check_config
+```
 
 ```text
 /dev/serial/by-id/usb-Itead_Sonoff_Zigbee_3.0_USB_Dongle_Plus_V2_167f1800b812ef11801a75b8bf9df066-if00-port0
@@ -104,7 +116,7 @@ sudo ls -l /var/lib/home-assistant/home-assistant_v2.db
 Verify the declarative firewall rules after activation or a firewall restart:
 
 ```sh
-sudo iptables -C nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept
+sudo iptables -S nixos-fw | grep -- '--dport 8123' && exit 1 || true
 sudo iptables -C nixos-fw -p tcp --dport 2222 -j nixos-fw-accept
 sudo iptables -C nixos-fw -s 192.168.8.0/24 -p tcp --dport 2049 -j nixos-fw-accept
 sudo iptables -S nixos-fw
@@ -112,16 +124,48 @@ sudo iptables -S nixos-fw
 
 Run a restart/recovery test only under separate authorization; it is not part of deployment verification.
 
-From a LAN client, verify the frontend:
+From a LAN client that trusts Caddy's root CA, verify the frontend:
 
 ```sh
-curl --fail http://192.168.8.100:8123/
+curl --fail --cacert ./caddy-local-root.crt https://home.home.arpa/
+nc -zvw 3 192.168.8.100 8123 && exit 1 || true
 ```
 
-Verify port 8123 is rejected from a non-LAN network using an authorized test host. Do not use an Internet scan. Confirm no unexpected listener was added:
+Verify port 8123 is rejected from an authorized LAN and non-LAN test host. Do not use an Internet scan. Confirm no unexpected listener was added:
 
 ```sh
 sudo ss -ltnp
 ```
 
-The configuration intentionally leaves `services.home-assistant.config = null`: Home Assistant creates and owns `configuration.yaml` and its SQLite database in `/var/lib/home-assistant`. That directory is on the Latitude system disk, not `/mnt/external_data`.
+The configuration intentionally leaves `services.home-assistant.config = null`: Home Assistant creates and owns `configuration.yaml`, `.storage/` (including UI-managed integrations), and `home-assistant_v2.db` in `/var/lib/home-assistant`. That directory is on the Latitude system disk, not `/mnt/external_data`. No Nix activation or boot script rewrites it.
+
+## Backup and restore Home Assistant state
+
+Back up `/var/lib/home-assistant`, including `configuration.yaml`, `.storage/`,
+and `home-assistant_v2.db`, to encrypted access-controlled storage. Do not copy
+the live SQLite database with `cp`, `rsync`, or a filesystem snapshot unless the
+snapshot is documented crash-consistent. First use SQLite's online backup API,
+then copy the remaining state while Home Assistant is stopped for a consistent
+whole-directory backup. Replace `/secure/backup` with a protected backup target
+outside this repository; this flake does not move state to the NAS.
+
+```sh
+sudo install -d -m 0700 -o root -g root /secure/backup
+sudo sqlite3 /var/lib/home-assistant/home-assistant_v2.db \
+  ".backup '/secure/backup/home-assistant_v2-$(date +%F).db'"
+sudo systemctl stop home-assistant.service
+sudo tar --xattrs --acls --numeric-owner \
+  --exclude='./home-assistant_v2.db*' \
+  -C /var/lib/home-assistant \
+  -czf /secure/backup/home-assistant-state-$(date +%F).tar.gz .
+sudo systemctl start home-assistant.service
+sudo systemctl is-active home-assistant.service
+```
+
+The `sqlite3` client must be installed on Latitude before running that command;
+do not substitute an ordinary file copy. Keep the SQLite backup with the
+same-date state archive. To restore, stop Home Assistant, retain the failed
+directory, restore both artifacts into a fresh `/var/lib/home-assistant` with
+their archived numeric ownership and modes, validate `configuration.yaml` with
+`hass --script check_config`, then start the service. Test restores in an
+isolated copy before replacing live state.

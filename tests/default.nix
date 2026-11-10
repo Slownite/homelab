@@ -85,7 +85,7 @@ let
     (ensure (checkAssertions nfs) "NFS fixture assertions failed")
     (ensure (
       contains "iptables -A nixos-fw -s 192.168.8.0/24 -p tcp --dport 2049 -j nixos-fw-accept" nfs.networking.firewall.extraCommands
-      && contains "iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" nfs.networking.firewall.extraCommands
+      && !contains "--dport 8123" nfs.networking.firewall.extraCommands
     ) "Home Assistant must not replace the source-restricted NFS rule")
     (ensure (checkAssertions c) "Base module assertion failed")
     (ensure (checkAssertions enabled) "Enabled container host assertion failed")
@@ -227,9 +227,10 @@ let
     ) "ZHA must retain the hardened native serial-device service policy")
     (ensure (
       c.networking.firewall.allowedTCPPorts == c.services.openssh.ports
-      && contains "iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" c.networking.firewall.extraCommands
-      && contains "iptables -D nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" c.networking.firewall.extraStopCommands
-    ) "Home Assistant must allow TCP 8123 only from the wired LAN")
+      && !builtins.elem 8123 c.networking.firewall.allowedTCPPorts
+      && !contains "--dport 8123" c.networking.firewall.extraCommands
+      && !contains "--dport 8123" c.networking.firewall.extraStopCommands
+    ) "Home Assistant TCP 8123 must not be exposed through the firewall")
     (ensure (
       c.services.caddy.enable
       && c.services.caddy.dataDir == "/var/lib/caddy"
@@ -239,9 +240,11 @@ let
       &&
         contains "reverse_proxy 127.0.0.1:8123"
           c.services.caddy.virtualHosts."home.home.arpa".extraConfig
+      && !contains "reverse_proxy [::1]:8123" c.services.caddy.virtualHosts."home.home.arpa".extraConfig
       && contains "admin 127.0.0.1:2019" c.services.caddy.globalConfig
       && contains "auto_https disable_redirects" c.services.caddy.globalConfig
       && c.systemd.services.caddy.serviceConfig.StateDirectory == [ "caddy" ]
+      && c.systemd.services.caddy.serviceConfig.StateDirectoryMode == "0700"
       && c.systemd.services.caddy.wantedBy == [ "multi-user.target" ]
       && contains "iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 443 -j nixos-fw-accept" c.networking.firewall.extraCommands
       && contains "iptables -D nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 443 -j nixos-fw-accept" c.networking.firewall.extraStopCommands

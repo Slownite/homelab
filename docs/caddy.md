@@ -7,7 +7,7 @@
 - User: Latitude LAN administrator and Home Assistant browser clients.
 - Interfaces: native NixOS `services.caddy`, `https://home.home.arpa`, Home Assistant's runtime-managed `configuration.yaml`, system firewall, and Caddy's persistent local PKI storage.
 - Included: a reusable native Caddy virtual-host module, TLS from Caddy's internal CA, a loopback Home Assistant upstream, LAN-scoped HTTPS, and operational instructions for trust, deployment, and verification.
-- Excluded: deployment, a connection to Latitude, OpenWrt or DNS changes, any public exposure or port forwarding, replacement of Home Assistant state, removal of the temporary direct port-8123 access, and HTTP-to-HTTPS redirection.
+- Excluded: deployment, a connection to Latitude, OpenWrt or DNS changes, any public exposure or port forwarding, replacement of Home Assistant state, and HTTP-to-HTTPS redirection.
 
 ### The user must be able to
 
@@ -22,7 +22,7 @@
 - [ ] DOD-06. Given a TCP connection reaches `eno2` from outside `192.168.8.0/24`, when it targets port 443, then the firewall does not accept it.
 - [ ] DOD-07. Given a LAN client targets TCP port 80, when it reaches Latitude, then no HTTP redirect listener is exposed.
 - [ ] DOD-08. Given a LAN client targets Caddy's administration port, when it reaches Latitude, then it cannot connect because the administration API is bound only to loopback.
-- [ ] DOD-09. Given this module is evaluated, then SSH, NFS, NAT, Hermes networking, OpenWrt, Home Assistant onboarding/state, and direct LAN access to port 8123 are unchanged.
+- [ ] DOD-09. Given a LAN client targets Home Assistant's TCP port 8123, when it reaches Latitude, then the firewall does not accept it; SSH, NFS, NAT, Hermes networking, OpenWrt, and Home Assistant onboarding/state are unchanged.
 
 ### Persistence and recovery
 
@@ -64,7 +64,7 @@ sudo systemctl restart home-assistant.service
 sudo systemctl is-active home-assistant.service
 ```
 
-Do not remove direct port-8123 access until the HTTPS checks succeed.
+The completed configuration intentionally has no LAN firewall exception for TCP 8123. Caddy reaches Home Assistant over loopback, so this does not affect the proxy.
 
 ## Root CA retrieval and client trust
 
@@ -111,6 +111,7 @@ sudo sha256sum /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
 From a trusted LAN client after installing the root CA:
 
 ```sh
+getent ahostsv4 home.home.arpa
 curl --fail --cacert ./caddy-local-root.crt https://home.home.arpa/
 curl --fail --cacert ./caddy-local-root.crt --http1.1 \
   --include --no-buffer \
@@ -119,13 +120,54 @@ curl --fail --cacert ./caddy-local-root.crt --http1.1 \
   https://home.home.arpa/api/websocket
 ```
 
-The second command must receive `101 Switching Protocols` after Home Assistant is configured and running. Also complete an interactive browser login and observe the Home Assistant UI remain connected.
+`getent` must report `192.168.8.100`; the second `curl` command must receive
+`101 Switching Protocols` after Home Assistant is configured and running. Also
+complete an interactive browser login and observe the Home Assistant UI remain
+connected.
 
-From an authorized non-LAN test host, verify `192.168.8.100:443` is rejected; do not scan from the Internet. Verify port 8123 still works from the LAN until explicitly retired:
+From an authorized non-LAN test host, verify `192.168.8.100:443` is rejected; do not scan from the Internet. From a LAN client, verify TCP 8123 is no longer accepted:
 
 ```sh
-curl --fail http://192.168.8.100:8123/
+nc -zvw 3 192.168.8.100 8123 && exit 1 || true
 ```
+
+The `nc` command must fail from a LAN client. On Latitude, confirm the policy and
+that the only Caddy administration listener is loopback:
+
+```sh
+sudo iptables -C nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 443 -j nixos-fw-accept
+sudo iptables -S nixos-fw | grep -- '--dport 8123' && exit 1 || true
+sudo ss -ltnp '( sport = :2019 or sport = :8123 )'
+sudo test "$(stat -c %a /var/lib/caddy)" = 700
+```
+
+## Backup and restore Caddy state
+
+`/var/lib/caddy/.local/share/caddy` contains the internal CA, issued
+certificates, and private keys. It is persistent service state, not a
+Nix-generated directory. Back it up only to encrypted, access-controlled
+storage; preserve numeric ownership and permissions. Do not add the archive or
+any private key to Git.
+
+For a consistent backup, schedule a short Caddy outage, stop the service, and
+archive its data directory. Replace `/secure/backup` with a protected backup
+mount that is not this repository or the NAS automatically managed by this
+flake.
+
+```sh
+sudo systemctl stop caddy.service
+sudo install -d -m 0700 -o root -g root /secure/backup
+sudo tar --xattrs --acls --numeric-owner -C /var/lib/caddy \
+  -czf /secure/backup/caddy-state-$(date +%F).tar.gz .
+sudo systemctl start caddy.service
+sudo systemctl is-active caddy.service
+```
+
+To restore after stopping Caddy, retain the failed directory for forensics,
+extract the archive into a newly created `/var/lib/caddy`, and restore its
+ownership/mode from the archive before starting Caddy. Test a copy in an
+isolated path first. Never restore only `root.crt`: the matching private key
+and issued certificate state must remain consistent.
 
 For persistence, record the displayed root-certificate digest, reboot only under separate authorization, then repeat the on-host `sha256sum` and HTTPS checks. The digest must be unchanged. Finally, inspect existing service status and listeners to confirm no unrelated service regressed:
 
