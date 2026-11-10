@@ -1,0 +1,34 @@
+# Bluetooth scanning with `default_config` and ZHA
+
+## Scope
+
+This finding applies to Home Assistant Core 2026.5.4, fetched by the pinned NixOS 26.05 revision [`c56a87d8e41ce69bd2af57eb35dcc117a9dfca33`](https://github.com/NixOS/nixpkgs/tree/c56a87d8e41ce69bd2af57eb35dcc117a9dfca33). The Nix derivation fixes Core to [`2026.5.4`](https://github.com/NixOS/nixpkgs/blob/c56a87d8e41ce69bd2af57eb35dcc117a9dfca33/pkgs/servers/home-assistant/default.nix#L267-L289). This repository deliberately uses `config = null` and `configDir = "/var/lib/home-assistant"` in [`services/home-assistant/default.nix`](../services/home-assistant/default.nix#L11-L22).
+
+## Finding
+
+There is **no supported declarative exclusion of Bluetooth while retaining `default_config`**. Core's [`default_config` manifest](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/default_config/manifest.json#L5-L29) declares `bluetooth` as a dependency; the official [`default_config` documentation](https://www.home-assistant.io/integrations/default_config/) lists it too. Therefore Core always starts the Bluetooth *component* with `default_config`.
+
+The component is not itself a local BLE scanner. Its [`async_setup`](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/bluetooth/__init__.py#L211-L256) discovers adapters and offers setup flows. A local `HaScanner` is created and `async_start()` is called only from [`async_setup_entry`](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/bluetooth/__init__.py#L349-L415), that is, for a Bluetooth config entry. Home Assistant's Bluetooth documentation states the same distinction: `default_config` enables automatic adapter discovery, but Bluetooth is enabled by its config flow or a `bluetooth:` YAML entry ([configuration](https://www.home-assistant.io/integrations/bluetooth/#configuration)).
+
+## Safest authorized operational action
+
+For every existing local Bluetooth-adapter config entry, use the Home Assistant UI's **Disable** control rather than deleting the entry or changing Nix/YAML. This is a supported, admin-only config-entry operation: Core's config UI calls `config_entries/disable` with `disabled_by: "user"` ([source](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/config/config_entries.py#L542-L576)). It saves the entry and reloads it ([Core source](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/config_entries.py#L2438-L2470)); a disabled entry returns before `async_setup_entry` ([Core source](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/config_entries.py#L682-L696)), so the path that constructs and starts `HaScanner` is not reached.
+
+The disabled entry retains its unique ID, so later adapter discovery aborts rather than creating another enabled entry ([Bluetooth flow](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/bluetooth/config_flow.py#L77-L89), [unique-ID guard](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/config_entries.py#L3062-L3110)). For an adapter that has never been configured, choose **Ignore** on its discovery flow instead; that creates a `SOURCE_IGNORE` config entry ([Core source](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/config_entries.py#L3194-L3210)), which is likewise skipped at setup.
+
+This stops actual local BLE scanning, but cannot stop the top-level Bluetooth component's adapter discovery while `default_config` remains. The component continues to query adapters and can offer discovery flows ([source](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/bluetooth/__init__.py#L145-L208)). A requirement to prevent that component initialization too is incompatible with retaining `default_config` in this Core release.
+
+Do not replace UI state with `bluetooth:` YAML, hand-edit `.storage`, remove D-Bus/capabilities, or remove `AF_BLUETOOTH`. The latter is capability masking: the official documentation describes absent Bluetooth capabilities as degraded operation with errors, not Bluetooth being disabled ([documentation](https://www.home-assistant.io/integrations/bluetooth/#additional-details-for-container)). The pinned module derives those capabilities and `AF_BLUETOOTH` when `default_config` is present ([module source](https://github.com/NixOS/nixpkgs/blob/c56a87d8e41ce69bd2af57eb35dcc117a9dfca33/nixos/modules/services/home-automation/home-assistant.nix#L168-L220), [service policy](https://github.com/NixOS/nixpkgs/blob/c56a87d8e41ce69bd2af57eb35dcc117a9dfca33/nixos/modules/services/home-automation/home-assistant.nix#L984-L1094)).
+
+## State and ZHA effects
+
+Disabling changes only the stored Bluetooth config entry's `disabled_by` field; it does not replace `configuration.yaml`, erase `/var/lib/home-assistant`, or modify the recorder database. The NixOS module installs or copies `configuration.yaml` in service `preStart` only when `cfg.config != null` ([module source](https://github.com/NixOS/nixpkgs/blob/c56a87d8e41ce69bd2af57eb35dcc117a9dfca33/nixos/modules/services/home-automation/home-assistant.nix#L873-L983)); this configuration keeps it null.
+
+ZHA remains available. Its Core manifest depends on `file_upload` and `homeassistant_hardware`, not Bluetooth ([manifest](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/zha/manifest.json#L1-L23)); the NixOS module separately derives serial device access for `zha` ([module source](https://github.com/NixOS/nixpkgs/blob/c56a87d8e41ce69bd2af57eb35dcc117a9dfca33/nixos/modules/services/home-automation/home-assistant.nix#L225-L280)).
+
+## Validation after an authorized UI change
+
+1. In **Settings → Devices & services → Bluetooth**, confirm each local adapter entry is disabled; for a newly discovered but unwanted adapter, confirm it is ignored rather than configured.
+2. Restart Home Assistant only if the UI reports that it is required. After startup, verify no enabled Bluetooth adapter scanner appears in **Settings → Connectivity → Bluetooth**. For an administrator WebSocket client, `bluetooth/subscribe_scanner_details` returns every current scanner ([Core source](https://github.com/home-assistant/core/blob/2026.5.4/homeassistant/components/bluetooth/websocket_api.py#L250-L295)); it must return no local scanner for each disabled/ignored adapter.
+3. Confirm `/var/lib/home-assistant` and `home-assistant_v2.db` remain present; do not inspect or modify `.storage` manually.
+4. Confirm the existing ZHA integration is loaded and controls its coordinator/devices, or (before onboarding) that ZHA can still use its configured `/dev/serial/by-id/...` path. ZHA's official setup is serial-coordinator based ([documentation](https://www.home-assistant.io/integrations/zha/#configuration)).

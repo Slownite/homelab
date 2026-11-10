@@ -8,6 +8,7 @@
 let
   c = validation.config;
   enabled = containerValidation.config;
+  contains = pkgs.lib.hasInfix;
   hermes = hermesValidation.config;
   hermesActivation =
     (hermesValidation.extendModules {
@@ -82,6 +83,10 @@ let
       nfs.systemd.services.nfs-server.unitConfig.ConditionPathIsMountPoint == "/srv/fixture"
     ) "NFS needs mountpoint guard")
     (ensure (checkAssertions nfs) "NFS fixture assertions failed")
+    (ensure (
+      contains "iptables -A nixos-fw -s 192.168.8.0/24 -p tcp --dport 2049 -j nixos-fw-accept" nfs.networking.firewall.extraCommands
+      && contains "iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" nfs.networking.firewall.extraCommands
+    ) "Home Assistant must not replace the source-restricted NFS rule")
     (ensure (checkAssertions c) "Base module assertion failed")
     (ensure (checkAssertions enabled) "Enabled container host assertion failed")
     (ensure (builtins.all (
@@ -222,9 +227,8 @@ let
     ) "ZHA must retain the hardened native serial-device service policy")
     (ensure (
       c.networking.firewall.allowedTCPPorts == c.services.openssh.ports
-      &&
-        c.networking.firewall.extraInputRules
-        == "iifname \"eno2\" ip saddr 192.168.8.0/24 tcp dport 8123 accept\n"
+      && contains "iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" c.networking.firewall.extraCommands
+      && contains "iptables -D nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept" c.networking.firewall.extraStopCommands
     ) "Home Assistant must allow TCP 8123 only from the wired LAN")
   ];
 in
