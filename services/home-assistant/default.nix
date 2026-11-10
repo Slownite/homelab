@@ -24,12 +24,6 @@ in
     openFirewallForComponents = false;
   };
 
-  # Keep the Home Assistant frontend scoped to the wired LAN; this is emitted
-  # with NixOS's iptables firewall lifecycle rather than opening port 8123 globally.
-  networking.firewall.extraCommands = ''
-    iptables -A nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept
-  '';
-  networking.firewall.extraStopCommands = ''
-    iptables -D nixos-fw -i eno2 -s 192.168.8.0/24 -p tcp --dport 8123 -j nixos-fw-accept 2>/dev/null || true
-  '';
+  # Caddy is the only LAN entry point. Home Assistant remains reachable to
+  # Caddy over loopback, which never requires a firewall exception.
 }
